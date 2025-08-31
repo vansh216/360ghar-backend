@@ -29,7 +29,7 @@ async def get_my_visits(
 ):
     return await get_user_visits(db, current_user.id)
 
-@router.get("/upcoming")
+@router.get("/upcoming/")
 async def get_upcoming_visits(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
@@ -37,7 +37,7 @@ async def get_upcoming_visits(
     from app.services.visit import get_user_upcoming_visits
     return await get_user_upcoming_visits(db, current_user.id)
 
-@router.get("/past")
+@router.get("/past/")
 async def get_past_visits(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
@@ -45,7 +45,7 @@ async def get_past_visits(
     from app.services.visit import get_user_past_visits
     return await get_user_past_visits(db, current_user.id)
 
-@router.get("/relationship-manager")
+@router.get("/relationship-manager/")
 async def get_my_relationship_manager(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
@@ -88,7 +88,7 @@ async def update_visit_details(
     
     return await update_visit(db, visit_id, visit_update)
 
-@router.post("/reschedule", response_model=MessageResponse)
+@router.post("/reschedule/", response_model=MessageResponse)
 async def reschedule_visit_date(
     reschedule_data: VisitReschedule,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -108,7 +108,7 @@ async def reschedule_visit_date(
     
     return MessageResponse(message="Visit rescheduled successfully")
 
-@router.post("/cancel", response_model=MessageResponse)
+@router.post("/cancel/", response_model=MessageResponse)
 async def cancel_visit_request(
     cancel_data: VisitCancel,
     current_user: UserSchema = Depends(get_current_active_user),

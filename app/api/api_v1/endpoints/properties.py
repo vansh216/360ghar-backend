@@ -162,7 +162,7 @@ async def get_properties_list(
         logger.error(f"Property search failed for user {user_id or 'anonymous'}: {str(e)}")
         raise
 
-@router.get("/recommendations")
+@router.get("/recommendations/")
 async def get_recommendations(
     current_user: Optional[UserSchema] = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
@@ -210,7 +210,7 @@ async def update_property_details(
     
     return updated_property
 
-@router.delete("/{property_id}")
+@router.delete("/{property_id}/")
 async def delete_property_endpoint(
     property_id: int,
     db: AsyncSession = Depends(get_db),

@@ -31,7 +31,7 @@ async def get_my_bookings(
 ):
     return await get_user_bookings(db, current_user.id)
 
-@router.get("/upcoming")
+@router.get("/upcoming/")
 async def get_upcoming_bookings(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
@@ -39,7 +39,7 @@ async def get_upcoming_bookings(
     from app.services.booking import get_user_upcoming_bookings
     return await get_user_upcoming_bookings(db, current_user.id)
 
-@router.get("/past")
+@router.get("/past/")
 async def get_past_bookings(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
@@ -47,7 +47,7 @@ async def get_past_bookings(
     from app.services.booking import get_user_past_bookings
     return await get_user_past_bookings(db, current_user.id)
 
-@router.post("/check-availability")
+@router.post("/check-availability/")
 async def check_booking_availability(
     availability_check: BookingAvailability,
     db: AsyncSession = Depends(get_db)
@@ -60,7 +60,7 @@ async def check_booking_availability(
         availability_check.guests
     )
 
-@router.post("/calculate-pricing")
+@router.post("/calculate-pricing/")
 async def calculate_booking_pricing(
     pricing_request: BookingAvailability,
     db: AsyncSession = Depends(get_db)
@@ -106,7 +106,7 @@ async def update_booking_details(
     
     return await update_booking(db, booking_id, booking_update)
 
-@router.post("/cancel", response_model=MessageResponse)
+@router.post("/cancel/", response_model=MessageResponse)
 async def cancel_booking_request(
     cancel_data: BookingCancel,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -126,7 +126,7 @@ async def cancel_booking_request(
     
     return MessageResponse(message="Booking cancelled successfully")
 
-@router.post("/payment", response_model=MessageResponse)
+@router.post("/payment/", response_model=MessageResponse)
 async def process_booking_payment(
     payment_data: BookingPayment,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -146,7 +146,7 @@ async def process_booking_payment(
     
     return MessageResponse(message="Payment processed successfully")
 
-@router.post("/review", response_model=MessageResponse)
+@router.post("/review/", response_model=MessageResponse)
 async def add_booking_review(
     review_data: BookingReview,
     current_user: UserSchema = Depends(get_current_active_user),

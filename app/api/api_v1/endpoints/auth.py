@@ -105,7 +105,7 @@ async def get_current_user_optional(
     
     return None
 
-@router.post("/login")
+@router.post("/login/")
 async def login(user_login: UserLogin, db: AsyncSession = Depends(get_db)):
     """Login with Supabase Auth using phone + password"""
     try:
@@ -218,7 +218,7 @@ async def login(user_login: UserLogin, db: AsyncSession = Depends(get_db)):
             },
         )
 
-@router.post("/register")
+@router.post("/register/")
 async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
     """Register via Supabase Auth using phone as primary identifier"""
     try:

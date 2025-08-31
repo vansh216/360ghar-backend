@@ -36,7 +36,7 @@ from app.services.visit import get_agent_visits
 router = APIRouter()
 
 # User-facing agent endpoints
-@router.get("/assigned", response_model=Agent)
+@router.get("/assigned/", response_model=Agent)
 async def get_my_agent(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
@@ -50,7 +50,7 @@ async def get_my_agent(
         )
     return agent
 
-@router.post("/assign", response_model=AgentAssignment)
+@router.post("/assign/", response_model=AgentAssignment)
 async def assign_my_agent(
     agent_id: Optional[int] = None,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -66,7 +66,7 @@ async def assign_my_agent(
     return assignment
 
 # Public agent information endpoints
-@router.get("/available", response_model=List[Agent])
+@router.get("/available/", response_model=List[Agent])
 async def list_available_agents(
     specialization: Optional[str] = Query(None, description="Filter by specialization"),
     agent_type: Optional[str] = Query(None, description="Filter by agent type"),
@@ -121,7 +121,7 @@ async def get_agent_details(
     return agent
 
 
-@router.get("/{agent_id}/stats", response_model=AgentWithStats)
+@router.get("/{agent_id}/stats/", response_model=AgentWithStats)
 async def get_agent_statistics(
     agent_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -136,7 +136,7 @@ async def get_agent_statistics(
         )
     return agent_with_stats
 
-@router.get("/{agent_id}/visits")
+@router.get("/{agent_id}/visits/")
 async def get_agent_visit_history(
     agent_id: int,
     page: int = Query(1, ge=1, description="Page number"),
@@ -150,7 +150,7 @@ async def get_agent_visit_history(
     return visits
 
 # Admin endpoints (TODO: Add admin role check)
-@router.get("", response_model=List[Agent])
+@router.get("/", response_model=List[Agent])
 async def list_all_agents(
     include_inactive: bool = Query(False, description="Include inactive agents"),
     current_user: UserSchema = Depends(get_current_active_user),
@@ -163,7 +163,7 @@ async def list_all_agents(
     else:
         return await get_active_agents(db)
 
-@router.post("", response_model=Agent)
+@router.post("/", response_model=Agent)
 async def create_new_agent(
     agent_data: AgentCreate,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -212,7 +212,7 @@ async def deactivate_agent(
         )
     return MessageResponse(message="Agent deactivated successfully")
 
-@router.patch("/{agent_id}/availability", response_model=MessageResponse)
+@router.patch("/{agent_id}/availability/", response_model=MessageResponse)
 async def update_agent_availability_status(
     agent_id: int,
     is_available: bool,
@@ -231,7 +231,7 @@ async def update_agent_availability_status(
     return MessageResponse(message=f"Agent marked as {status_text}")
 
 # System monitoring endpoints
-@router.get("/system/workload", response_model=List[AgentWorkload])
+@router.get("/system/workload/", response_model=List[AgentWorkload])
 async def get_system_workload(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
@@ -240,7 +240,7 @@ async def get_system_workload(
     # TODO: Add admin role check
     return await get_workload_distribution(db)
 
-@router.get("/system/stats", response_model=AgentSystemStats)
+@router.get("/system/stats/", response_model=AgentSystemStats)
 async def get_system_statistics(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
