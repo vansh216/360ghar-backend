@@ -7,7 +7,7 @@ These factories can be used directly or through pytest fixtures.
 
 import random
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
@@ -197,7 +197,7 @@ class BookingFactory:
     ) -> Booking:
         """Build a Booking instance without persisting."""
         if check_in_date is None:
-            check_in_date = datetime.now() + timedelta(days=7)
+            check_in_date = datetime.now(timezone.utc) + timedelta(days=7)
         if check_out_date is None:
             check_out_date = check_in_date + timedelta(days=3)
 
@@ -228,9 +228,14 @@ class BookingFactory:
             payment_status=payment_status.value if isinstance(
                 payment_status, PaymentStatus
             ) else payment_status,
+            # Required guest information fields
+            primary_guest_name=kwargs.get("primary_guest_name", "Test Guest"),
+            primary_guest_phone=kwargs.get("primary_guest_phone", "+919876543210"),
+            primary_guest_email=kwargs.get("primary_guest_email", "guest@test.com"),
             **{k: v for k, v in kwargs.items() if k not in [
                 "booking_reference", "base_amount", "taxes_amount",
-                "service_charges", "discount_amount", "total_amount"
+                "service_charges", "discount_amount", "total_amount",
+                "primary_guest_name", "primary_guest_phone", "primary_guest_email"
             ]},
         )
 
@@ -280,8 +285,11 @@ class VisitFactory:
             agent_id=agent_id,
             scheduled_date=scheduled_date,
             status=status.value if isinstance(status, VisitStatus) else status,
-            notes=kwargs.get("notes", "Test visit notes"),
-            **{k: v for k, v in kwargs.items() if k != "notes"},
+            visit_notes=kwargs.get("visit_notes", "Test visit notes"),
+            special_requirements=kwargs.get("special_requirements"),
+            **{k: v for k, v in kwargs.items() if k not in [
+                "visit_notes", "special_requirements"
+            ]},
         )
 
     @staticmethod
@@ -313,35 +321,41 @@ class AgentFactory:
 
     @staticmethod
     def build(
-        user_id: Optional[int] = None,
-        license_number: Optional[str] = None,
-        agency_name: str = "Test Agency",
-        is_verified: bool = True,
+        name: str = "Test Agent",
+        contact_number: Optional[str] = None,
+        description: str = "Experienced real estate agent",
+        agent_type: str = "general",
+        experience_level: str = "intermediate",
+        is_active: bool = True,
         is_available: bool = True,
         **kwargs,
     ) -> Agent:
         """Build an Agent instance without persisting."""
+        from app.models.enums import AgentType, ExperienceLevel
+
         return Agent(
-            user_id=user_id,
-            license_number=license_number or f"AG{random.randint(10000, 99999)}",
-            agency_name=agency_name,
-            is_verified=is_verified,
+            name=name,
+            contact_number=contact_number or random_phone(),
+            description=description,
+            agent_type=AgentType(agent_type) if isinstance(agent_type, str) else agent_type,
+            experience_level=ExperienceLevel(experience_level) if isinstance(experience_level, str) else experience_level,
+            is_active=is_active,
             is_available=is_available,
-            rating=kwargs.get("rating", Decimal("4.5")),
-            total_reviews=kwargs.get("total_reviews", random.randint(0, 100)),
-            **{k: v for k, v in kwargs.items() if k not in ["rating", "total_reviews"]},
+            languages=kwargs.get("languages", ["English", "Hindi"]),
+            total_users_assigned=kwargs.get("total_users_assigned", 0),
+            user_satisfaction_rating=kwargs.get("user_satisfaction_rating", 4.5),
+            **{k: v for k, v in kwargs.items() if k not in [
+                "languages", "total_users_assigned", "user_satisfaction_rating"
+            ]},
         )
 
     @staticmethod
     async def create(
         db: AsyncSession,
-        user: Optional[User] = None,
         **kwargs,
     ) -> Agent:
         """Create and persist an Agent instance."""
-        user_id = kwargs.pop("user_id", None) or (user.id if user else None)
-
-        agent = AgentFactory.build(user_id=user_id, **kwargs)
+        agent = AgentFactory.build(**kwargs)
         db.add(agent)
         await db.flush()
         await db.refresh(agent)

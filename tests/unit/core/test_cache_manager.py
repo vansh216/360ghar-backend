@@ -214,12 +214,14 @@ class TestCacheManager:
     @pytest.mark.asyncio
     async def test_uses_fallback_when_primary_unavailable(self):
         """Test manager uses fallback when primary is not available."""
-        mock_primary = AsyncMock()
-        mock_primary.is_available.return_value = False
+        # Create a mock that has both sync and async methods configured properly
+        mock_primary = MagicMock()
+        mock_primary.is_available.return_value = False  # Sync method
+        mock_primary.get = AsyncMock(return_value=None)  # Async method
 
-        mock_fallback = AsyncMock()
-        mock_fallback.is_available.return_value = True
-        mock_fallback.get.return_value = "fallback_value"
+        mock_fallback = MagicMock()
+        mock_fallback.is_available.return_value = True  # Sync method
+        mock_fallback.get = AsyncMock(return_value="fallback_value")  # Async method
 
         manager = CacheManager(backend=mock_primary, fallback=mock_fallback)
 

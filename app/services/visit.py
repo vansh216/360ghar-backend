@@ -6,6 +6,7 @@ from app.models.properties import Visit, Property
 from app.models.agents import Agent
 from app.models.users import User
 from app.schemas.visit import VisitCreate, VisitUpdate, Visit as VisitSchema
+from app.core.utils import make_tz_aware
 from typing import Optional
 
 async def create_visit(db: AsyncSession, user_id: int, visit: VisitCreate):
@@ -58,12 +59,12 @@ async def get_user_visits(db: AsyncSession, user_id: int):
     result = await db.execute(stmt)
     visits = result.scalars().all()
     
-    # Count visits by status
+    # Count visits by status (handle tz-naive dates from DB)
     now = datetime.now(timezone.utc)
     upcoming = sum(
         1
         for v in visits
-        if v.status in ["scheduled", "confirmed", "rescheduled"] and v.scheduled_date > now
+        if v.status in ["scheduled", "confirmed", "rescheduled"] and make_tz_aware(v.scheduled_date) > now
     )
     completed = sum(1 for v in visits if v.status == "completed")
     cancelled = sum(1 for v in visits if v.status == "cancelled")

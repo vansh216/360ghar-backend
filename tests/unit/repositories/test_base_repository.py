@@ -8,14 +8,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.base import BaseRepository
-
-
-class MockModel:
-    """Mock SQLAlchemy model for testing."""
-    __tablename__ = "mock_table"
-    id = MagicMock()
-    name = MagicMock()
-    status = MagicMock()
+from app.models.users import User  # Use a real model for testing
 
 
 class TestBaseRepository:
@@ -30,7 +23,7 @@ class TestBaseRepository:
     @pytest.fixture
     def repository(self, mock_session):
         """Create a base repository instance."""
-        return BaseRepository(MockModel, mock_session)
+        return BaseRepository(User, mock_session)
 
     @pytest.mark.asyncio
     async def test_get_by_id(self, repository, mock_session):
@@ -42,7 +35,7 @@ class TestBaseRepository:
         result = await repository.get(1)
 
         assert result == mock_entity
-        mock_session.get.assert_called_once_with(MockModel, 1)
+        mock_session.get.assert_called_once_with(User, 1)
 
     @pytest.mark.asyncio
     async def test_get_by_id_not_found(self, repository, mock_session):
@@ -61,7 +54,7 @@ class TestBaseRepository:
         mock_result.scalar_one_or_none.return_value = mock_entity
         mock_session.execute.return_value = mock_result
 
-        result = await repository.get_with_relations(1, ["owner", "images"])
+        result = await repository.get_with_relations(1, ["agent"])
 
         assert result == mock_entity
 
@@ -89,7 +82,7 @@ class TestBaseRepository:
         mock_result.scalars.return_value = mock_scalars
         mock_session.execute.return_value = mock_result
 
-        result = await repository.list(filters={"status": "active"})
+        result = await repository.list(filters={"is_active": True})
 
         assert result == mock_entities
 
@@ -117,7 +110,7 @@ class TestBaseRepository:
         mock_result.scalars.return_value = mock_scalars
         mock_session.execute.return_value = mock_result
 
-        result = await repository.list(order_by="name")
+        result = await repository.list(order_by="full_name")
 
         assert result == mock_entities
 
@@ -153,7 +146,7 @@ class TestBaseRepository:
         mock_result.scalar_one.return_value = 10
         mock_session.execute.return_value = mock_result
 
-        result = await repository.count(filters={"status": "active"})
+        result = await repository.count(filters={"is_active": True})
 
         assert result == 10
 
@@ -179,7 +172,7 @@ class TestBaseRepository:
         mock_result.scalar_one_or_none.return_value = mock_entity
         mock_session.execute.return_value = mock_result
 
-        result = await repository.update(1, {"name": "updated"})
+        result = await repository.update(1, {"full_name": "updated"})
 
         assert result == mock_entity
 
@@ -190,7 +183,7 @@ class TestBaseRepository:
         mock_result.scalar_one_or_none.return_value = None
         mock_session.execute.return_value = mock_result
 
-        result = await repository.update(999, {"name": "updated"})
+        result = await repository.update(999, {"full_name": "updated"})
 
         assert result is None
 

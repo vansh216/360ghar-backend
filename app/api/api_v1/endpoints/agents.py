@@ -6,7 +6,7 @@ from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.api.api_v1.dependencies.auth import get_current_admin, get_current_agent
 from app.schemas.user import User as UserSchema
 from app.schemas.agent import (
-    Agent, 
+    Agent,
     AgentCreate,
     AgentUpdate,
     AgentAssignment,
@@ -39,6 +39,10 @@ from app.services.agent import (
 from app.services.visit import get_agent_visits
 
 router = APIRouter()
+
+# =============================================================================
+# Static path routes MUST come before dynamic /{agent_id} routes
+# =============================================================================
 
 # User-facing agent endpoints
 @router.get("/assigned/", response_model=Agent)
@@ -106,6 +110,46 @@ async def get_agents_by_agent_specialization(
 ):
     """Get agents by specialization - returns all active agents"""
     return await get_agents_by_specialization_paginated(db, page=page, limit=limit, specialization=specialization)
+
+# System monitoring endpoints (must be before /{agent_id})
+@router.get("/system/workload/", response_model=List[AgentWorkload])
+async def get_system_workload(
+    current_user: UserSchema = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get workload distribution across all agents (admin endpoint)"""
+    return await get_workload_distribution(db)
+
+@router.get("/system/stats/", response_model=AgentSystemStats)
+async def get_system_statistics(
+    current_user: UserSchema = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get overall agent system statistics (admin endpoint)"""
+    return await get_system_stats(db)
+
+# Agent self profile endpoint (must be before /{agent_id})
+@router.get("/me/", response_model=Agent)
+async def get_my_agent_profile(
+    current_user: UserSchema = Depends(get_current_agent),
+    db: AsyncSession = Depends(get_db)
+):
+    """Return the current agent user's Agent profile.
+
+    Assumes the agent user's `agent_id` links to their Agent record.
+    """
+    if not current_user.agent_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent profile not linked")
+
+    from app.services.agent import get_agent_by_id
+    agent = await get_agent_by_id(db, current_user.agent_id)
+    if not agent:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    return agent
+
+# =============================================================================
+# Dynamic path routes with {agent_id} - must come AFTER all static routes
+# =============================================================================
 
 @router.get("/{agent_id}", response_model=Agent)
 async def get_agent_details(
@@ -225,39 +269,3 @@ async def update_agent_availability_status(
         )
     status_text = "available" if is_available else "unavailable"
     return MessageResponse(message=f"Agent marked as {status_text}")
-
-# System monitoring endpoints
-@router.get("/system/workload/", response_model=List[AgentWorkload])
-async def get_system_workload(
-    current_user: UserSchema = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db)
-):
-    """Get workload distribution across all agents (admin endpoint)"""
-    return await get_workload_distribution(db)
-
-@router.get("/system/stats/", response_model=AgentSystemStats)
-async def get_system_statistics(
-    current_user: UserSchema = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db)
-):
-    """Get overall agent system statistics (admin endpoint)"""
-    return await get_system_stats(db)
-
-# Agent self profile endpoint
-@router.get("/me/", response_model=Agent)
-async def get_my_agent_profile(
-    current_user: UserSchema = Depends(get_current_agent),
-    db: AsyncSession = Depends(get_db)
-):
-    """Return the current agent user's Agent profile.
-
-    Assumes the agent user's `agent_id` links to their Agent record.
-    """
-    if not current_user.agent_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent profile not linked")
-
-    from app.services.agent import get_agent_by_id
-    agent = await get_agent_by_id(db, current_user.agent_id)
-    if not agent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
-    return agent

@@ -25,6 +25,7 @@ class TestFullTextSearch:
         result = await get_unified_properties_optimized(
             db_session,
             filters,
+            user_id=None,
             page=1,
             limit=20,
         )
@@ -46,6 +47,7 @@ class TestFullTextSearch:
         result = await get_unified_properties_optimized(
             db_session,
             filters,
+            user_id=None,
             page=1,
             limit=20,
         )
@@ -70,6 +72,7 @@ class TestFullTextSearch:
         result = await get_unified_properties_optimized(
             db_session,
             filters,
+            user_id=None,
             page=1,
             limit=20,
         )
@@ -91,6 +94,7 @@ class TestFullTextSearch:
         result = await get_unified_properties_optimized(
             db_session,
             filters,
+            user_id=None,
             page=1,
             limit=20,
         )
@@ -114,6 +118,7 @@ class TestFullTextSearch:
         result = await get_unified_properties_optimized(
             db_session,
             filters,
+            user_id=None,
             page=1,
             limit=20,
         )
@@ -186,6 +191,7 @@ class TestSearchFilters:
         result = await get_unified_properties_optimized(
             db_session,
             filters,
+            user_id=None,
             page=1,
             limit=20,
         )
@@ -213,6 +219,7 @@ class TestSearchFilters:
         result = await get_unified_properties_optimized(
             db_session,
             filters,
+            user_id=None,
             page=1,
             limit=20,
         )
@@ -238,6 +245,7 @@ class TestSearchFilters:
         result = await get_unified_properties_optimized(
             db_session,
             filters,
+            user_id=None,
             page=1,
             limit=20,
         )

@@ -8,7 +8,6 @@ This is the main conftest.py providing:
 - External service mocking setup
 """
 
-import asyncio
 import os
 from typing import AsyncGenerator, Generator
 
@@ -18,7 +17,6 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
-    async_sessionmaker,
     create_async_engine,
 )
 from sqlalchemy.pool import NullPool
@@ -45,28 +43,10 @@ IS_CI = os.getenv("CI", "false").lower() == "true"
 
 
 # =============================================================================
-# Event Loop Fixture
-# =============================================================================
-
-@pytest.fixture(scope="session")
-def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
-    """
-    Create an event loop for the test session.
-
-    This fixture is required for pytest-asyncio to work correctly
-    with session-scoped async fixtures.
-    """
-    policy = asyncio.get_event_loop_policy()
-    loop = policy.new_event_loop()
-    yield loop
-    loop.close()
-
-
-# =============================================================================
 # Database Fixtures
 # =============================================================================
 
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def test_engine():
     """
     Create the test database engine (session-scoped for performance).
@@ -84,15 +64,21 @@ async def test_engine():
 
     # Create all tables
     async with engine.begin() as conn:
-        # Drop all tables first for a clean slate
-        await conn.run_sync(Base.metadata.drop_all)
+        # Drop all tables first for a clean slate (use raw SQL to handle circular deps)
+        await conn.execute(text("DROP SCHEMA public CASCADE"))
+        await conn.execute(text("CREATE SCHEMA public"))
+        await conn.execute(text("GRANT ALL ON SCHEMA public TO public"))
+        # Create required extensions
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
 
     yield engine
 
-    # Cleanup: drop all tables
+    # Cleanup: drop schema to avoid circular dependency issues
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        await conn.execute(text("DROP SCHEMA public CASCADE"))
+        await conn.execute(text("CREATE SCHEMA public"))
 
     await engine.dispose()
 
@@ -104,23 +90,54 @@ async def db_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
 
     Each test function gets its own session wrapped in a transaction
     that is rolled back at the end of the test, ensuring test isolation.
+
+    Uses connection-level transaction with savepoint pattern for proper
+    isolation between tests.
     """
-    async_session_factory = async_sessionmaker(
-        test_engine,
-        class_=AsyncSession,
+    # Create a new connection for this test
+    connection = await test_engine.connect()
+
+    # Start a transaction that we'll rollback at the end
+    transaction = await connection.begin()
+
+    # Create a session bound to this connection
+    session = AsyncSession(
+        bind=connection,
         expire_on_commit=False,
         autoflush=False,
     )
 
-    async with async_session_factory() as session:
-        # Begin a transaction
-        async with session.begin():
-            yield session
-            # Rollback happens automatically when exiting the context
+    # Start a nested transaction (savepoint) for the actual test
+    nested = await connection.begin_nested()
+
+    @event.listens_for(session.sync_session, "after_transaction_end")
+    def restart_savepoint(session_sync, transaction_inner):
+        """Restart the savepoint when a transaction ends."""
+        if transaction_inner.nested and not transaction_inner._parent.nested:
+            # Expired savepoint, create a new one
+            connection.sync_connection.begin_nested()
+
+    try:
+        yield session
+    finally:
+        # Close the session
+        await session.close()
+
+        # Rollback the transaction (this discards all changes)
+        await transaction.rollback()
+
+        # Close the connection
+        await connection.close()
 
 
 @pytest_asyncio.fixture(scope="function")
 async def db(db_session) -> AsyncSession:
+    """Alias for db_session for convenience."""
+    return db_session
+
+
+@pytest_asyncio.fixture(scope="function")
+async def test_db(db_session) -> AsyncSession:
     """Alias for db_session for convenience."""
     return db_session
 
@@ -137,10 +154,34 @@ async def test_app(db_session: AsyncSession):
     Overrides the database dependency to use the test session,
     ensuring all database operations in tests use the same
     transaction that will be rolled back.
+
+    Also adds root-level endpoints that are defined in app/main.py
+    but not in the factory.
     """
     from app.core.database import get_db
+    from app.core.config import settings
+    from datetime import datetime
 
-    app = create_app()
+    app = create_app(testing=True)
+
+    # Add root-level endpoints that are normally in main.py
+    @app.get("/")
+    async def root():
+        return {
+            "message": "360Ghar Real Estate Platform API",
+            "version": "2.0.0",
+            "docs": f"{settings.API_V1_STR}/docs",
+            "status": "running",
+        }
+
+    @app.get("/health")
+    async def health_check():
+        return {
+            "status": "healthy",
+            "database": "connected",
+            "timestamp": datetime.utcnow().isoformat(),
+            "version": "2.0.0",
+        }
 
     # Override database dependency
     async def override_get_db():

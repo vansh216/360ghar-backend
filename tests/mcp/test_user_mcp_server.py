@@ -15,6 +15,9 @@ class TestOwnerPropertyTools:
         """Test listing owner properties with auth."""
         from app.mcp.user_server import owner_properties_list
 
+        # Get the underlying function from the FunctionTool
+        fn = owner_properties_list.fn if hasattr(owner_properties_list, 'fn') else owner_properties_list
+
         with patch("app.mcp.user_server._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="user")
 
@@ -24,7 +27,7 @@ class TestOwnerPropertyTools:
                 with patch("app.mcp.user_server.get_db") as mock_db:
                     mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                    result = await owner_properties_list(jwt="test_token")
+                    result = await fn(jwt="test_token")
 
                     assert "data" in result or "error" in result
 
@@ -33,13 +36,16 @@ class TestOwnerPropertyTools:
         """Test listing properties without auth."""
         from app.mcp.user_server import owner_properties_list
 
+        # Get the underlying function from the FunctionTool
+        fn = owner_properties_list.fn if hasattr(owner_properties_list, 'fn') else owner_properties_list
+
         with patch("app.mcp.user_server._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = None
 
             with patch("app.mcp.user_server.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                result = await owner_properties_list(jwt=None)
+                result = await fn(jwt=None)
 
                 assert "error" in result
                 assert result["error"]["code"] == "UNAUTHORIZED"
@@ -53,6 +59,9 @@ class TestOwnerPropertyCreate:
         """Test creating property."""
         from app.mcp.user_server import owner_properties_create
 
+        # Get the underlying function from the FunctionTool
+        fn = owner_properties_create.fn if hasattr(owner_properties_create, 'fn') else owner_properties_create
+
         with patch("app.mcp.user_server._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="user")
 
@@ -65,7 +74,7 @@ class TestOwnerPropertyCreate:
                 with patch("app.mcp.user_server.get_db") as mock_db:
                     mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                    result = await owner_properties_create(
+                    result = await fn(
                         jwt="test_token",
                         title="New Property",
                         property_type="apartment",
@@ -73,7 +82,9 @@ class TestOwnerPropertyCreate:
                         city="Mumbai",
                         locality="Andheri",
                         full_address="123 Test Street",
-                        pincode="400069",
+                        latitude=19.0760,
+                        longitude=72.8777,
+                        base_price=5000000,
                     )
 
                     # Should return success or error
@@ -88,13 +99,16 @@ class TestTenantTools:
         """Test getting current tenant lease."""
         from app.mcp.user_server import tenant_lease_current
 
+        # Get the underlying function from the FunctionTool
+        fn = tenant_lease_current.fn if hasattr(tenant_lease_current, 'fn') else tenant_lease_current
+
         with patch("app.mcp.user_server._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="user")
 
             with patch("app.mcp.user_server.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                result = await tenant_lease_current(jwt="test_token")
+                result = await fn(jwt="test_token")
 
                 assert isinstance(result, dict)
 
@@ -103,13 +117,16 @@ class TestTenantTools:
         """Test getting tenant rent history."""
         from app.mcp.user_server import tenant_rent_history
 
+        # Get the underlying function from the FunctionTool
+        fn = tenant_rent_history.fn if hasattr(tenant_rent_history, 'fn') else tenant_rent_history
+
         with patch("app.mcp.user_server._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="user")
 
             with patch("app.mcp.user_server.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                result = await tenant_rent_history(jwt="test_token")
+                result = await fn(jwt="test_token")
 
                 assert isinstance(result, dict)
 
@@ -122,6 +139,9 @@ class TestBookingTools:
         """Test listing user bookings."""
         from app.mcp.user_server import bookings_list
 
+        # Get the underlying function from the FunctionTool
+        fn = bookings_list.fn if hasattr(bookings_list, 'fn') else bookings_list
+
         with patch("app.mcp.user_server._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="user")
 
@@ -131,7 +151,7 @@ class TestBookingTools:
                 with patch("app.mcp.user_server.get_db") as mock_db:
                     mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                    result = await bookings_list(jwt="test_token")
+                    result = await fn(jwt="test_token")
 
                     assert isinstance(result, dict)
 
@@ -140,13 +160,16 @@ class TestBookingTools:
         """Test checking property availability."""
         from app.mcp.user_server import bookings_check_availability
 
+        # Get the underlying function from the FunctionTool
+        fn = bookings_check_availability.fn if hasattr(bookings_check_availability, 'fn') else bookings_check_availability
+
         with patch("app.mcp.user_server.booking_svc.check_availability", new_callable=AsyncMock) as mock_check:
             mock_check.return_value = {"available": True, "conflicts": []}
 
             with patch("app.mcp.user_server.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                result = await bookings_check_availability(
+                result = await fn(
                     property_id=1,
                     check_in_date="2025-01-15",
                     check_out_date="2025-01-18",

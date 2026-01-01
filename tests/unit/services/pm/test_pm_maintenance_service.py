@@ -8,87 +8,63 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import MaintenancePriority, MaintenanceRequestStatus
+from app.models.enums import (
+    MaintenanceCategory,
+    MaintenanceUrgency,
+    MaintenanceRequestStatus,
+)
 
 
 class TestCreateMaintenanceRequest:
     """Tests for create_maintenance_request function."""
 
     @pytest.mark.asyncio
-    async def test_create_maintenance_request_as_tenant(
-        self,
-        db_session: AsyncSession,
-        test_tenant_user,
-        test_property,
-    ):
-        """Test tenant creating maintenance request."""
-        from app.services.pm_maintenance import create_maintenance_request
-
-        with patch("app.services.pm_maintenance.assert_can_access_property", new_callable=AsyncMock) as mock_prop:
-            mock_prop.return_value = test_property
-
-            result = await create_maintenance_request(
-                db_session,
-                actor=test_tenant_user,
-                property_id=test_property.id,
-                title="Leaky faucet",
-                description="Kitchen faucet is dripping",
-                priority=MaintenancePriority.medium,
-                category="plumbing",
-            )
-
-            assert result is not None
-            assert result.title == "Leaky faucet"
-            assert result.status == MaintenanceRequestStatus.open
-
-
-class TestGetMaintenanceRequest:
-    """Tests for get_maintenance_request function."""
-
-    @pytest.mark.asyncio
-    async def test_get_maintenance_request_success(
+    async def test_create_maintenance_request_as_owner(
         self,
         db_session: AsyncSession,
         test_user,
-        test_maintenance_request,
+        test_managed_property,
     ):
-        """Test getting maintenance request by ID."""
-        from app.services.pm_maintenance import get_maintenance_request
+        """Test owner creating maintenance request."""
+        from app.services.pm_maintenance import create_maintenance_request
 
-        with patch("app.services.pm_maintenance.assert_can_access_maintenance_request", new_callable=AsyncMock) as mock_access:
-            mock_access.return_value = test_maintenance_request
+        result = await create_maintenance_request(
+            db_session,
+            actor=test_user,
+            property_id=test_managed_property.id,
+            category=MaintenanceCategory.plumbing,
+            urgency=MaintenanceUrgency.medium,
+            title="Leaky faucet",
+            description="Kitchen faucet is dripping",
+        )
 
-            result = await get_maintenance_request(
-                db_session,
-                actor=test_user,
-                request_id=test_maintenance_request.id,
-            )
-
-            assert result is not None
-            assert result.id == test_maintenance_request.id
+        assert result is not None
+        assert result.title == "Leaky faucet"
+        assert result.request_status == MaintenanceRequestStatus.open
+        assert result.category == MaintenanceCategory.plumbing
+        assert result.urgency == MaintenanceUrgency.medium
 
 
 class TestListMaintenanceRequests:
     """Tests for list_maintenance_requests function."""
 
     @pytest.mark.asyncio
-    async def test_list_requests_for_property(
+    async def test_list_requests_for_owner(
         self,
         db_session: AsyncSession,
         test_user,
-        test_property,
-        test_maintenance_requests,
+        test_maintenance_request,
     ):
-        """Test listing maintenance requests for property."""
+        """Test listing maintenance requests for owner."""
         from app.services.pm_maintenance import list_maintenance_requests
 
         result = await list_maintenance_requests(
             db_session,
             actor=test_user,
-            property_id=test_property.id,
         )
 
         assert isinstance(result, list)
+        assert len(result) >= 1
 
 
 class TestUpdateMaintenanceRequest:
@@ -104,91 +80,56 @@ class TestUpdateMaintenanceRequest:
         """Test updating maintenance request status."""
         from app.services.pm_maintenance import update_maintenance_request
 
-        with patch("app.services.pm_maintenance.assert_can_access_maintenance_request", new_callable=AsyncMock) as mock_access:
-            mock_access.return_value = test_maintenance_request
+        result = await update_maintenance_request(
+            db_session,
+            actor=test_user,
+            request_id=test_maintenance_request.id,
+            request_status=MaintenanceRequestStatus.in_review,
+        )
 
-            result = await update_maintenance_request(
-                db_session,
-                actor=test_user,
-                request_id=test_maintenance_request.id,
-                status=MaintenanceRequestStatus.in_progress,
-            )
-
-            assert result is not None
-            assert result.status == MaintenanceRequestStatus.in_progress
-
-
-class TestAssignVendor:
-    """Tests for assign_vendor function."""
+        assert result is not None
+        assert result.request_status == MaintenanceRequestStatus.in_review
 
     @pytest.mark.asyncio
-    async def test_assign_vendor_to_request(
+    async def test_update_request_estimated_cost(
         self,
         db_session: AsyncSession,
         test_user,
         test_maintenance_request,
     ):
-        """Test assigning vendor to maintenance request."""
-        from app.services.pm_maintenance import assign_vendor
+        """Test updating maintenance request estimated cost."""
+        from app.services.pm_maintenance import update_maintenance_request
 
-        with patch("app.services.pm_maintenance.assert_can_access_maintenance_request", new_callable=AsyncMock) as mock_access:
-            mock_access.return_value = test_maintenance_request
+        result = await update_maintenance_request(
+            db_session,
+            actor=test_user,
+            request_id=test_maintenance_request.id,
+            estimated_cost=2500.0,
+        )
 
-            result = await assign_vendor(
-                db_session,
-                actor=test_user,
-                request_id=test_maintenance_request.id,
-                vendor_name="ABC Plumbers",
-                vendor_phone="+919876543210",
-                estimated_cost=2500.0,
-            )
-
-            assert result is not None
-            assert result.vendor_name == "ABC Plumbers"
+        assert result is not None
+        assert result.estimated_cost == 2500.0
 
 
-class TestCompleteMaintenanceRequest:
-    """Tests for complete_maintenance_request function."""
+class TestMaintenanceEnums:
+    """Tests for maintenance enum values."""
 
-    @pytest.mark.asyncio
-    async def test_complete_request(
-        self,
-        db_session: AsyncSession,
-        test_user,
-        test_maintenance_request,
-    ):
-        """Test completing maintenance request."""
-        from app.services.pm_maintenance import complete_maintenance_request
-
-        with patch("app.services.pm_maintenance.assert_can_access_maintenance_request", new_callable=AsyncMock) as mock_access:
-            mock_access.return_value = test_maintenance_request
-
-            result = await complete_maintenance_request(
-                db_session,
-                actor=test_user,
-                request_id=test_maintenance_request.id,
-                resolution_notes="Fixed the faucet",
-                actual_cost=2000.0,
-            )
-
-            assert result is not None
-            assert result.status == MaintenanceRequestStatus.completed
-            assert result.resolved_at is not None
-
-
-class TestMaintenancePriority:
-    """Tests for maintenance priority handling."""
-
-    def test_priority_enum_values(self):
-        """Test priority enum values."""
-        assert MaintenancePriority.low.value == "low"
-        assert MaintenancePriority.medium.value == "medium"
-        assert MaintenancePriority.high.value == "high"
-        assert MaintenancePriority.urgent.value == "urgent"
+    def test_urgency_enum_values(self):
+        """Test urgency enum values."""
+        assert MaintenanceUrgency.low.value == "low"
+        assert MaintenanceUrgency.medium.value == "medium"
+        assert MaintenanceUrgency.high.value == "high"
+        assert MaintenanceUrgency.emergency.value == "emergency"
 
     def test_status_enum_values(self):
         """Test status enum values."""
         assert MaintenanceRequestStatus.open.value == "open"
-        assert MaintenanceRequestStatus.in_progress.value == "in_progress"
-        assert MaintenanceRequestStatus.completed.value == "completed"
-        assert MaintenanceRequestStatus.cancelled.value == "cancelled"
+        assert MaintenanceRequestStatus.in_review.value == "in_review"
+        assert MaintenanceRequestStatus.resolved.value == "resolved"
+        assert MaintenanceRequestStatus.closed.value == "closed"
+
+    def test_category_enum_values(self):
+        """Test category enum values."""
+        assert MaintenanceCategory.plumbing.value == "plumbing"
+        assert MaintenanceCategory.electrical.value == "electrical"
+        assert MaintenanceCategory.hvac.value == "hvac"

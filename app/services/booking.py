@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from app.models.bookings import Booking
 from app.models.properties import Property
 from app.schemas.booking import BookingCreate, BookingUpdate, BookingPayment, BookingReview
+from app.core.utils import make_tz_aware
 from typing import Optional
 import uuid
 from fastapi import HTTPException
@@ -65,9 +66,9 @@ async def get_user_bookings(db: AsyncSession, user_id: int):
 
     now = datetime.now(timezone.utc)
 
-    # Calculate counts for different statuses
-    upcoming = sum(1 for b in bookings if b.check_in_date > now and b.booking_status in ["confirmed", "pending"])
-    completed = sum(1 for b in bookings if b.check_out_date < now and b.booking_status in ["confirmed", "completed"])
+    # Calculate counts for different statuses (handle tz-naive dates from DB)
+    upcoming = sum(1 for b in bookings if make_tz_aware(b.check_in_date) > now and b.booking_status in ["confirmed", "pending"])
+    completed = sum(1 for b in bookings if make_tz_aware(b.check_out_date) < now and b.booking_status in ["confirmed", "completed"])
     cancelled = sum(1 for b in bookings if b.booking_status == "cancelled")
 
     return {

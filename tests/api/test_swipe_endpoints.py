@@ -1,57 +1,71 @@
 """
 Tests for swipe endpoints.
+
+These tests verify the swipe-related API endpoints work correctly.
+They mock the service layer to isolate endpoint testing.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
+
+from app.schemas.common import MessageResponse
 
 
 class TestRecordSwipeEndpoint:
     """Tests for POST /api/v1/swipes/ endpoint."""
 
     @pytest.mark.asyncio
-    async def test_record_swipe_like(self, client: AsyncClient, auth_headers, test_property):
+    async def test_record_swipe_like(self, authenticated_client: AsyncClient):
         """Test recording a like swipe."""
-        with patch("app.api.api_v1.endpoints.swipes.record_swipe", new_callable=AsyncMock) as mock_swipe:
+        with patch(
+            "app.api.api_v1.endpoints.swipes.record_swipe",
+            new_callable=AsyncMock,
+        ) as mock_swipe:
             mock_swipe.return_value = True
 
-            response = await client.post(
+            response = await authenticated_client.post(
                 "/api/v1/swipes/",
                 json={
-                    "property_id": test_property.id,
+                    "property_id": 1,
                     "is_liked": True,
                 },
-                headers=auth_headers,
             )
 
             assert response.status_code == 200
+            data = response.json()
+            assert "message" in data
 
     @pytest.mark.asyncio
-    async def test_record_swipe_dislike(self, client: AsyncClient, auth_headers, test_property):
+    async def test_record_swipe_dislike(self, authenticated_client: AsyncClient):
         """Test recording a dislike swipe."""
-        with patch("app.api.api_v1.endpoints.swipes.record_swipe", new_callable=AsyncMock) as mock_swipe:
+        with patch(
+            "app.api.api_v1.endpoints.swipes.record_swipe",
+            new_callable=AsyncMock,
+        ) as mock_swipe:
             mock_swipe.return_value = True
 
-            response = await client.post(
+            response = await authenticated_client.post(
                 "/api/v1/swipes/",
                 json={
-                    "property_id": test_property.id,
+                    "property_id": 1,
                     "is_liked": False,
                 },
-                headers=auth_headers,
             )
 
             assert response.status_code == 200
+            data = response.json()
+            assert "message" in data
 
     @pytest.mark.asyncio
-    async def test_record_swipe_unauthorized(self, client: AsyncClient, test_property):
+    async def test_record_swipe_unauthorized(self, client: AsyncClient):
         """Test swipe without auth."""
         response = await client.post(
             "/api/v1/swipes/",
             json={
-                "property_id": test_property.id,
+                "property_id": 1,
                 "is_liked": True,
             },
         )
@@ -60,12 +74,15 @@ class TestRecordSwipeEndpoint:
 
 
 class TestGetSwipeHistoryEndpoint:
-    """Tests for GET /api/v1/swipes/history endpoint."""
+    """Tests for GET /api/v1/swipes/ endpoint."""
 
     @pytest.mark.asyncio
-    async def test_get_swipe_history(self, client: AsyncClient, auth_headers):
+    async def test_get_swipe_history(self, authenticated_client: AsyncClient):
         """Test getting swipe history."""
-        with patch("app.api.api_v1.endpoints.swipes.get_swipe_history", new_callable=AsyncMock) as mock_history:
+        with patch(
+            "app.api.api_v1.endpoints.swipes.get_swipe_history",
+            new_callable=AsyncMock,
+        ) as mock_history:
             mock_history.return_value = {
                 "items": [],
                 "total": 0,
@@ -74,20 +91,20 @@ class TestGetSwipeHistoryEndpoint:
                 "total_pages": 0,
             }
 
-            response = await client.get(
-                "/api/v1/swipes/history",
-                headers=auth_headers,
-            )
+            response = await authenticated_client.get("/api/v1/swipes/")
 
             assert response.status_code == 200
             data = response.json()
-            assert "items" in data
+            assert "properties" in data
             assert "total" in data
 
     @pytest.mark.asyncio
-    async def test_get_swipe_history_liked_only(self, client: AsyncClient, auth_headers):
+    async def test_get_swipe_history_liked_only(self, authenticated_client: AsyncClient):
         """Test getting only liked swipes."""
-        with patch("app.api.api_v1.endpoints.swipes.get_swipe_history", new_callable=AsyncMock) as mock_history:
+        with patch(
+            "app.api.api_v1.endpoints.swipes.get_swipe_history",
+            new_callable=AsyncMock,
+        ) as mock_history:
             mock_history.return_value = {
                 "items": [],
                 "total": 0,
@@ -96,87 +113,108 @@ class TestGetSwipeHistoryEndpoint:
                 "total_pages": 0,
             }
 
-            response = await client.get(
-                "/api/v1/swipes/history",
+            response = await authenticated_client.get(
+                "/api/v1/swipes/",
                 params={"is_liked": "true"},
-                headers=auth_headers,
             )
 
             assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_get_swipe_history_unauthorized(self, client: AsyncClient):
+        """Test swipe history requires auth."""
+        response = await client.get("/api/v1/swipes/")
+
+        assert response.status_code == 401
 
 
 class TestUndoSwipeEndpoint:
-    """Tests for DELETE /api/v1/swipes/undo endpoint."""
+    """Tests for DELETE /api/v1/swipes/undo/ endpoint."""
 
     @pytest.mark.asyncio
-    async def test_undo_last_swipe(self, client: AsyncClient, auth_headers):
+    async def test_undo_last_swipe(self, authenticated_client: AsyncClient):
         """Test undoing last swipe."""
-        with patch("app.api.api_v1.endpoints.swipes.undo_last_swipe", new_callable=AsyncMock) as mock_undo:
-            mock_swipe = MagicMock()
-            mock_swipe.id = 1
-            mock_swipe.property_id = 1
-            mock_undo.return_value = mock_swipe
+        with patch(
+            "app.api.api_v1.endpoints.swipes.undo_last_swipe",
+            new_callable=AsyncMock,
+        ) as mock_undo:
+            # Return a truthy value to indicate success
+            mock_undo.return_value = {"id": 1, "property_id": 1}
 
-            response = await client.delete(
-                "/api/v1/swipes/undo",
-                headers=auth_headers,
-            )
+            response = await authenticated_client.delete("/api/v1/swipes/undo/")
 
             assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_undo_swipe_no_swipes(self, client: AsyncClient, auth_headers):
+    async def test_undo_swipe_no_swipes(self, authenticated_client: AsyncClient):
         """Test undoing when no swipes exist."""
-        with patch("app.api.api_v1.endpoints.swipes.undo_last_swipe", new_callable=AsyncMock) as mock_undo:
+        with patch(
+            "app.api.api_v1.endpoints.swipes.undo_last_swipe",
+            new_callable=AsyncMock,
+        ) as mock_undo:
             mock_undo.return_value = None
 
-            response = await client.delete(
-                "/api/v1/swipes/undo",
-                headers=auth_headers,
-            )
+            response = await authenticated_client.delete("/api/v1/swipes/undo/")
 
             assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_undo_swipe_unauthorized(self, client: AsyncClient):
+        """Test undo swipe requires auth."""
+        response = await client.delete("/api/v1/swipes/undo/")
+
+        assert response.status_code == 401
 
 
 class TestToggleSwipeEndpoint:
-    """Tests for PATCH /api/v1/swipes/{swipe_id}/toggle endpoint."""
+    """Tests for PUT /api/v1/swipes/{swipe_id}/toggle/ endpoint."""
 
     @pytest.mark.asyncio
-    async def test_toggle_swipe_success(self, client: AsyncClient, auth_headers, test_swipe):
+    async def test_toggle_swipe_success(self, authenticated_client: AsyncClient):
         """Test toggling swipe status."""
-        with patch("app.api.api_v1.endpoints.swipes.toggle_swipe", new_callable=AsyncMock) as mock_toggle:
+        with patch(
+            "app.api.api_v1.endpoints.swipes.toggle_swipe",
+            new_callable=AsyncMock,
+        ) as mock_toggle:
             mock_toggle.return_value = {"new_status": True, "property_id": 1}
 
-            response = await client.patch(
-                f"/api/v1/swipes/{test_swipe.id}/toggle",
-                headers=auth_headers,
-            )
+            response = await authenticated_client.put("/api/v1/swipes/1/toggle/")
 
             assert response.status_code == 200
             data = response.json()
-            assert "new_status" in data
+            assert "message" in data
 
     @pytest.mark.asyncio
-    async def test_toggle_swipe_not_found(self, client: AsyncClient, auth_headers):
+    async def test_toggle_swipe_not_found(self, authenticated_client: AsyncClient):
         """Test toggling non-existent swipe."""
-        with patch("app.api.api_v1.endpoints.swipes.toggle_swipe", new_callable=AsyncMock) as mock_toggle:
+        with patch(
+            "app.api.api_v1.endpoints.swipes.toggle_swipe",
+            new_callable=AsyncMock,
+        ) as mock_toggle:
             mock_toggle.return_value = None
 
-            response = await client.patch(
-                "/api/v1/swipes/99999/toggle",
-                headers=auth_headers,
-            )
+            response = await authenticated_client.put("/api/v1/swipes/99999/toggle/")
 
             assert response.status_code == 404
 
+    @pytest.mark.asyncio
+    async def test_toggle_swipe_unauthorized(self, client: AsyncClient):
+        """Test toggle swipe requires auth."""
+        response = await client.put("/api/v1/swipes/1/toggle/")
+
+        assert response.status_code == 401
+
 
 class TestGetSwipeStatsEndpoint:
-    """Tests for GET /api/v1/swipes/stats endpoint."""
+    """Tests for GET /api/v1/swipes/stats/ endpoint."""
 
     @pytest.mark.asyncio
-    async def test_get_swipe_stats(self, client: AsyncClient, auth_headers):
+    async def test_get_swipe_stats(self, authenticated_client: AsyncClient):
         """Test getting swipe statistics."""
-        with patch("app.api.api_v1.endpoints.swipes.get_swipe_stats", new_callable=AsyncMock) as mock_stats:
+        with patch(
+            "app.api.api_v1.endpoints.swipes.get_swipe_stats",
+            new_callable=AsyncMock,
+        ) as mock_stats:
             mock_stats.return_value = {
                 "total_swipes": 100,
                 "liked_count": 60,
@@ -184,35 +222,16 @@ class TestGetSwipeStatsEndpoint:
                 "like_percentage": 60.0,
             }
 
-            response = await client.get(
-                "/api/v1/swipes/stats",
-                headers=auth_headers,
-            )
+            response = await authenticated_client.get("/api/v1/swipes/stats/")
 
             assert response.status_code == 200
             data = response.json()
             assert "total_swipes" in data
             assert "like_percentage" in data
 
-
-class TestGetLikesEndpoint:
-    """Tests for GET /api/v1/swipes/likes endpoint."""
-
     @pytest.mark.asyncio
-    async def test_get_likes(self, client: AsyncClient, auth_headers):
-        """Test getting liked properties."""
-        with patch("app.api.api_v1.endpoints.swipes.get_swipe_history", new_callable=AsyncMock) as mock_likes:
-            mock_likes.return_value = {
-                "items": [],
-                "total": 0,
-                "page": 1,
-                "limit": 20,
-                "total_pages": 0,
-            }
+    async def test_get_swipe_stats_unauthorized(self, client: AsyncClient):
+        """Test swipe stats requires auth."""
+        response = await client.get("/api/v1/swipes/stats/")
 
-            response = await client.get(
-                "/api/v1/swipes/likes",
-                headers=auth_headers,
-            )
-
-            assert response.status_code == 200
+        assert response.status_code == 401

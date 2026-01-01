@@ -340,9 +340,150 @@ def mock_supabase_service_client():
         mock_table.update.return_value = mock_table
         mock_table.delete.return_value = mock_table
         mock_table.eq.return_value = mock_table
+        mock_table.limit.return_value = mock_table
         mock_table.execute.return_value = MagicMock(data=[])
 
         mock_client.table.return_value = mock_table
         mock.return_value = mock_client
 
         yield mock_client
+
+
+@pytest.fixture
+def mock_supabase_client(mock_supabase_service_client):
+    """Alias for mock_supabase_service_client for convenience."""
+    return mock_supabase_service_client
+
+
+# =============================================================================
+# Authenticated Client Fixtures
+# =============================================================================
+
+@pytest_asyncio.fixture
+async def authenticated_client(test_app, test_user):
+    """
+    Create an authenticated async HTTP client with user auth.
+
+    Overrides auth dependencies to return the test_user.
+    """
+    from app.api.api_v1.dependencies.auth import (
+        get_current_user,
+        get_current_active_user,
+        get_current_user_optional,
+    )
+    from app.schemas.user import User as UserSchema
+    from httpx import ASGITransport, AsyncClient
+
+    # Create schema from test user
+    user_schema = UserSchema.model_validate(test_user, from_attributes=True)
+
+    async def override_get_current_user():
+        return user_schema
+
+    async def override_get_current_active_user():
+        return user_schema
+
+    async def override_get_current_user_optional():
+        return user_schema
+
+    test_app.dependency_overrides[get_current_user] = override_get_current_user
+    test_app.dependency_overrides[get_current_active_user] = override_get_current_active_user
+    test_app.dependency_overrides[get_current_user_optional] = override_get_current_user_optional
+
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        timeout=30.0,
+    ) as ac:
+        yield ac
+
+
+@pytest_asyncio.fixture
+async def admin_authenticated_client(test_app, test_admin_user):
+    """
+    Create an authenticated async HTTP client with admin auth.
+
+    Overrides auth dependencies to return the test_admin_user.
+    """
+    from app.api.api_v1.dependencies.auth import (
+        get_current_user,
+        get_current_active_user,
+        get_current_user_optional,
+        get_current_admin,
+    )
+    from app.schemas.user import User as UserSchema
+    from httpx import ASGITransport, AsyncClient
+
+    # Create schema from test admin user
+    user_schema = UserSchema.model_validate(test_admin_user, from_attributes=True)
+
+    async def override_get_current_user():
+        return user_schema
+
+    async def override_get_current_active_user():
+        return user_schema
+
+    async def override_get_current_user_optional():
+        return user_schema
+
+    async def override_get_current_admin():
+        return user_schema
+
+    test_app.dependency_overrides[get_current_user] = override_get_current_user
+    test_app.dependency_overrides[get_current_active_user] = override_get_current_active_user
+    test_app.dependency_overrides[get_current_user_optional] = override_get_current_user_optional
+    test_app.dependency_overrides[get_current_admin] = override_get_current_admin
+
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        timeout=30.0,
+    ) as ac:
+        yield ac
+
+
+@pytest_asyncio.fixture
+async def agent_authenticated_client(test_app, test_agent_user):
+    """
+    Create an authenticated async HTTP client with agent auth.
+
+    Overrides auth dependencies to return the test_agent_user.
+    """
+    from app.api.api_v1.dependencies.auth import (
+        get_current_user,
+        get_current_active_user,
+        get_current_user_optional,
+        get_current_agent,
+    )
+    from app.schemas.user import User as UserSchema
+    from httpx import ASGITransport, AsyncClient
+
+    # Create schema from test agent user
+    user_schema = UserSchema.model_validate(test_agent_user, from_attributes=True)
+
+    async def override_get_current_user():
+        return user_schema
+
+    async def override_get_current_active_user():
+        return user_schema
+
+    async def override_get_current_user_optional():
+        return user_schema
+
+    async def override_get_current_agent():
+        return user_schema
+
+    test_app.dependency_overrides[get_current_user] = override_get_current_user
+    test_app.dependency_overrides[get_current_active_user] = override_get_current_active_user
+    test_app.dependency_overrides[get_current_user_optional] = override_get_current_user_optional
+    test_app.dependency_overrides[get_current_agent] = override_get_current_agent
+
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        timeout=30.0,
+    ) as ac:
+        yield ac

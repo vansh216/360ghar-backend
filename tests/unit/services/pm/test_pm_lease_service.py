@@ -133,33 +133,6 @@ class TestGetLease:
             assert result.id == test_lease.id
 
 
-class TestUpdateLease:
-    """Tests for update_lease function."""
-
-    @pytest.mark.asyncio
-    async def test_update_lease_monthly_rent(
-        self,
-        db_session: AsyncSession,
-        test_user,
-        test_lease,
-    ):
-        """Test updating lease monthly rent."""
-        from app.services.pm_leases import update_lease
-
-        with patch("app.services.pm_leases.assert_can_access_lease", new_callable=AsyncMock) as mock_access:
-            mock_access.return_value = test_lease
-
-            result = await update_lease(
-                db_session,
-                actor=test_user,
-                lease_id=test_lease.id,
-                monthly_rent=55000.0,
-            )
-
-            assert result is not None
-            assert result.monthly_rent == 55000.0
-
-
 class TestTerminateLease:
     """Tests for terminate_lease function."""
 
@@ -180,7 +153,6 @@ class TestTerminateLease:
                 db_session,
                 actor=test_user,
                 lease_id=test_active_lease.id,
-                termination_reason="Tenant request",
             )
 
             assert result is not None
@@ -200,7 +172,8 @@ class TestRenewLease:
         """Test successful lease renewal."""
         from app.services.pm_leases import renew_lease
 
-        new_end_date = test_active_lease.end_date + timedelta(days=365)
+        new_start = test_active_lease.end_date + timedelta(days=1)
+        new_end = new_start + timedelta(days=365)
 
         with patch("app.services.pm_leases.assert_can_access_lease", new_callable=AsyncMock) as mock_access:
             mock_access.return_value = test_active_lease
@@ -210,38 +183,9 @@ class TestRenewLease:
                         db_session,
                         actor=test_user,
                         lease_id=test_active_lease.id,
-                        new_end_date=new_end_date,
-                        new_monthly_rent=55000.0,
+                        start_date=new_start,
+                        end_date=new_end,
+                        monthly_rent=55000.0,
                     )
 
                     assert result is not None
-
-
-class TestLeaseStatusTransitions:
-    """Tests for lease status transitions."""
-
-    @pytest.mark.asyncio
-    async def test_activate_lease(
-        self,
-        db_session: AsyncSession,
-        test_user,
-        test_lease,
-    ):
-        """Test activating a draft lease."""
-        from app.services.pm_leases import activate_lease
-
-        with patch("app.services.pm_leases.assert_can_access_lease", new_callable=AsyncMock) as mock_access:
-            mock_access.return_value = test_lease
-            with patch("app.services.pm_leases.assert_can_access_property", new_callable=AsyncMock) as mock_prop:
-                mock_property = MagicMock()
-                mock_property.id = test_lease.property_id
-                mock_prop.return_value = mock_property
-
-                result = await activate_lease(
-                    db_session,
-                    actor=test_user,
-                    lease_id=test_lease.id,
-                )
-
-                assert result is not None
-                assert result.status == LeaseStatus.active

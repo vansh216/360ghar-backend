@@ -36,6 +36,9 @@ class TestCreateBooking:
             check_in_date=check_in,
             check_out_date=check_out,
             guests=2,
+            primary_guest_name="Test Guest",
+            primary_guest_phone="+919876543210",
+            primary_guest_email="guest@test.com",
         )
 
         with patch("app.services.booking.calculate_pricing", new_callable=AsyncMock) as mock_pricing:
@@ -65,25 +68,25 @@ class TestCreateBooking:
         test_short_stay_property,
     ):
         """Test booking creation fails with invalid date range."""
-        from app.services.booking import create_booking
         from app.schemas.booking import BookingCreate
-        from fastapi import HTTPException
+        from pydantic import ValidationError
 
         check_in = datetime.now(timezone.utc) + timedelta(days=7)
         check_out = check_in - timedelta(days=1)  # Invalid: checkout before checkin
 
-        booking_data = BookingCreate(
-            property_id=test_short_stay_property.id,
-            check_in_date=check_in,
-            check_out_date=check_out,
-            guests=2,
-        )
+        # Pydantic validation catches this at schema creation time
+        with pytest.raises(ValidationError) as exc_info:
+            BookingCreate(
+                property_id=test_short_stay_property.id,
+                check_in_date=check_in,
+                check_out_date=check_out,
+                guests=2,
+                primary_guest_name="Test Guest",
+                primary_guest_phone="+919876543210",
+                primary_guest_email="guest@test.com",
+            )
 
-        with pytest.raises(HTTPException) as exc_info:
-            await create_booking(db_session, test_user_2.id, booking_data)
-
-        assert exc_info.value.status_code == 400
-        assert "Invalid date range" in exc_info.value.detail
+        assert "Check-out date must be after check-in date" in str(exc_info.value)
 
 
 class TestGetBooking:

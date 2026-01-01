@@ -1,56 +1,100 @@
 """
 Tests for property API endpoints.
+
+These tests verify the property-related API endpoints work correctly.
+They mock the service layer to isolate endpoint testing.
 """
 
-from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
 
-from app.models.enums import PropertyType, PropertyPurpose
+from app.models.enums import PropertyType, PropertyPurpose, PropertyStatus
+from app.schemas.property import Property
+
+
+def create_mock_property(
+    property_id: int = 1,
+    title: str = "Test Property",
+    property_type: PropertyType = PropertyType.apartment,
+    purpose: PropertyPurpose = PropertyPurpose.rent,
+) -> Property:
+    """Create a mock property schema object."""
+    return Property(
+        id=property_id,
+        owner_id=1,
+        title=title,
+        description="A test property description",
+        property_type=property_type,
+        purpose=purpose,
+        base_price=50000.0,
+        monthly_rent=50000.0,
+        latitude=19.0760,
+        longitude=72.8777,
+        city="Mumbai",
+        state="Maharashtra",
+        country="India",
+        pincode="400001",
+        locality="Andheri",
+        full_address="123 Test Street, Andheri, Mumbai",
+        area_sqft=1000.0,
+        bedrooms=2,
+        bathrooms=2,
+        balconies=1,
+        parking_spaces=1,
+        status=PropertyStatus.available,
+        is_available=True,
+        view_count=0,
+        like_count=0,
+        interest_count=0,
+        is_managed=False,
+        created_at=datetime.now(timezone.utc),
+        updated_at=None,
+        images=None,
+        amenities=None,
+    )
 
 
 class TestCreateProperty:
     """Tests for POST /api/v1/properties/."""
 
     @pytest.mark.asyncio
-    async def test_create_property_success(
-        self, client: AsyncClient, test_user, auth_headers
-    ):
+    async def test_create_property_success(self, authenticated_client: AsyncClient):
         """Test successful property creation."""
-        with patch("app.api.api_v1.endpoints.properties.create_property", new_callable=AsyncMock) as mock_create:
-            mock_property = MagicMock()
-            mock_property.id = 1
-            mock_property.title = "Test Property"
-            mock_property.property_type = PropertyType.apartment
-            mock_property.purpose = PropertyPurpose.rent
-            mock_create.return_value = mock_property
+        with patch(
+            "app.api.api_v1.endpoints.properties.create_property",
+            new_callable=AsyncMock,
+        ) as mock_create:
+            mock_create.return_value = create_mock_property(
+                property_id=1,
+                title="Test Property",
+                property_type=PropertyType.apartment,
+                purpose=PropertyPurpose.rent,
+            )
 
-            with patch("app.api.api_v1.dependencies.auth.get_current_active_user", new_callable=AsyncMock) as mock_auth:
-                mock_auth.return_value = test_user
+            response = await authenticated_client.post(
+                "/api/v1/properties/",
+                json={
+                    "title": "Test Property",
+                    "description": "A test property",
+                    "property_type": "apartment",
+                    "purpose": "rent",
+                    "base_price": 50000,
+                    "monthly_rent": 50000,
+                    "city": "Mumbai",
+                    "locality": "Andheri",
+                    "full_address": "123 Test Street",
+                    "bedrooms": 2,
+                    "bathrooms": 2,
+                    "area_sqft": 1000,
+                },
+            )
 
-                response = await client.post(
-                    "/api/v1/properties/",
-                    headers=auth_headers,
-                    json={
-                        "title": "Test Property",
-                        "description": "A test property",
-                        "property_type": "apartment",
-                        "purpose": "rent",
-                        "monthly_rent": 50000,
-                        "city": "Mumbai",
-                        "locality": "Andheri",
-                        "full_address": "123 Test Street",
-                        "bedrooms": 2,
-                        "bathrooms": 2,
-                        "area_sqft": 1000,
-                    },
-                )
-
-                # Note: This may fail if auth middleware isn't properly mocked
-                # In a real test, we'd need to fully mock the auth chain
-                assert response.status_code in [200, 401, 422]
+            assert response.status_code == 200
+            data = response.json()
+            assert data["title"] == "Test Property"
 
     @pytest.mark.asyncio
     async def test_create_property_unauthenticated(self, client: AsyncClient):
@@ -61,11 +105,12 @@ class TestCreateProperty:
                 "title": "Test Property",
                 "property_type": "apartment",
                 "purpose": "rent",
+                "base_price": 50000,
             },
         )
 
         # Should require auth
-        assert response.status_code in [401, 403, 422]
+        assert response.status_code == 401
 
 
 class TestListProperties:
@@ -74,7 +119,10 @@ class TestListProperties:
     @pytest.mark.asyncio
     async def test_list_properties_public(self, client: AsyncClient):
         """Test property listing is publicly accessible."""
-        with patch("app.api.api_v1.endpoints.properties.get_unified_properties_optimized", new_callable=AsyncMock) as mock_list:
+        with patch(
+            "app.api.api_v1.endpoints.properties.get_unified_properties_optimized",
+            new_callable=AsyncMock,
+        ) as mock_list:
             mock_list.return_value = {
                 "items": [],
                 "total": 0,
@@ -84,12 +132,15 @@ class TestListProperties:
             response = await client.get("/api/v1/properties/")
 
             # Should be accessible without auth
-            assert response.status_code in [200, 422]
+            assert response.status_code == 200
 
     @pytest.mark.asyncio
     async def test_list_properties_with_filters(self, client: AsyncClient):
         """Test property listing with query filters."""
-        with patch("app.api.api_v1.endpoints.properties.get_unified_properties_optimized", new_callable=AsyncMock) as mock_list:
+        with patch(
+            "app.api.api_v1.endpoints.properties.get_unified_properties_optimized",
+            new_callable=AsyncMock,
+        ) as mock_list:
             mock_list.return_value = {
                 "items": [],
                 "total": 0,
@@ -107,12 +158,15 @@ class TestListProperties:
                 },
             )
 
-            assert response.status_code in [200, 422]
+            assert response.status_code == 200
 
     @pytest.mark.asyncio
     async def test_list_properties_with_location(self, client: AsyncClient):
         """Test property listing with location-based search."""
-        with patch("app.api.api_v1.endpoints.properties.get_unified_properties_optimized", new_callable=AsyncMock) as mock_list:
+        with patch(
+            "app.api.api_v1.endpoints.properties.get_unified_properties_optimized",
+            new_callable=AsyncMock,
+        ) as mock_list:
             mock_list.return_value = {
                 "items": [],
                 "total": 0,
@@ -128,7 +182,7 @@ class TestListProperties:
                 },
             )
 
-            assert response.status_code in [200, 422]
+            assert response.status_code == 200
 
 
 class TestGetProperty:
@@ -137,37 +191,65 @@ class TestGetProperty:
     @pytest.mark.asyncio
     async def test_get_property_success(self, client: AsyncClient):
         """Test getting property by ID."""
-        with patch("app.api.api_v1.endpoints.properties.get_property", new_callable=AsyncMock) as mock_get:
-            mock_property = MagicMock()
-            mock_property.id = 1
-            mock_property.title = "Test Property"
-            mock_get.return_value = mock_property
+        with patch(
+            "app.api.api_v1.endpoints.properties.get_property",
+            new_callable=AsyncMock,
+        ) as mock_get, patch(
+            "app.api.api_v1.endpoints.properties.increment_property_view_count",
+            new_callable=AsyncMock,
+        ):
+            mock_get.return_value = create_mock_property(property_id=1)
 
-            with patch("app.api.api_v1.endpoints.properties.increment_property_view_count", new_callable=AsyncMock):
-                with patch("app.api.api_v1.endpoints.properties.get_user_property_visit_stats", new_callable=AsyncMock) as mock_stats:
-                    mock_stats.return_value = {"visits": 0}
+            response = await client.get("/api/v1/properties/1")
 
-                    with patch("app.api.api_v1.endpoints.properties.get_user_like_for_property", new_callable=AsyncMock) as mock_like:
-                        mock_like.return_value = None
-
-                        response = await client.get("/api/v1/properties/1")
-
-                        # Response depends on mock setup
-                        assert response.status_code in [200, 404, 422]
+            assert response.status_code == 200
+            data = response.json()
+            assert data["id"] == 1
+            assert data["title"] == "Test Property"
 
     @pytest.mark.asyncio
     async def test_get_property_not_found(self, client: AsyncClient):
         """Test getting non-existent property returns 404."""
-        with patch("app.api.api_v1.endpoints.properties.get_property", new_callable=AsyncMock) as mock_get:
-            mock_get.return_value = None
+        from fastapi import HTTPException
+
+        with patch(
+            "app.api.api_v1.endpoints.properties.get_property",
+            new_callable=AsyncMock,
+        ) as mock_get, patch(
+            "app.api.api_v1.endpoints.properties.increment_property_view_count",
+            new_callable=AsyncMock,
+        ):
+            # Simulate not found by raising HTTPException
+            mock_get.side_effect = HTTPException(status_code=404, detail="Property not found")
 
             response = await client.get("/api/v1/properties/99999")
 
-            assert response.status_code in [404, 422]
+            assert response.status_code == 404
 
 
 class TestUpdateProperty:
     """Tests for PUT /api/v1/properties/{property_id}."""
+
+    @pytest.mark.asyncio
+    async def test_update_property_success(self, authenticated_client: AsyncClient):
+        """Test successful property update."""
+        with patch(
+            "app.api.api_v1.endpoints.properties.update_property",
+            new_callable=AsyncMock,
+        ) as mock_update:
+            mock_update.return_value = create_mock_property(
+                property_id=1,
+                title="Updated Title",
+            )
+
+            response = await authenticated_client.put(
+                "/api/v1/properties/1",
+                json={"title": "Updated Title"},
+            )
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["title"] == "Updated Title"
 
     @pytest.mark.asyncio
     async def test_update_property_unauthenticated(self, client: AsyncClient):
@@ -177,18 +259,31 @@ class TestUpdateProperty:
             json={"title": "Updated Title"},
         )
 
-        assert response.status_code in [401, 403, 422]
+        assert response.status_code == 401
 
 
 class TestDeleteProperty:
-    """Tests for DELETE /api/v1/properties/{property_id}."""
+    """Tests for DELETE /api/v1/properties/{property_id}/."""
+
+    @pytest.mark.asyncio
+    async def test_delete_property_success(self, authenticated_client: AsyncClient):
+        """Test successful property deletion."""
+        with patch(
+            "app.api.api_v1.endpoints.properties.delete_property",
+            new_callable=AsyncMock,
+        ) as mock_delete:
+            mock_delete.return_value = True
+
+            response = await authenticated_client.delete("/api/v1/properties/1/")
+
+            assert response.status_code == 200
 
     @pytest.mark.asyncio
     async def test_delete_property_unauthenticated(self, client: AsyncClient):
         """Test property deletion requires authentication."""
-        response = await client.delete("/api/v1/properties/1")
+        response = await client.delete("/api/v1/properties/1/")
 
-        assert response.status_code in [401, 403, 405, 422]
+        assert response.status_code == 401
 
 
 class TestPropertyFilters:
@@ -217,7 +312,10 @@ class TestPropertyFilters:
     @pytest.mark.asyncio
     async def test_valid_property_type_filter(self, client: AsyncClient):
         """Test valid property type filter."""
-        with patch("app.api.api_v1.endpoints.properties.get_unified_properties_optimized", new_callable=AsyncMock) as mock_list:
+        with patch(
+            "app.api.api_v1.endpoints.properties.get_unified_properties_optimized",
+            new_callable=AsyncMock,
+        ) as mock_list:
             mock_list.return_value = {"items": [], "total": 0, "total_pages": 0}
 
             response = await client.get(
@@ -225,12 +323,15 @@ class TestPropertyFilters:
                 params={"property_type": ["apartment", "house"]},
             )
 
-            assert response.status_code in [200, 422]
+            assert response.status_code == 200
 
     @pytest.mark.asyncio
     async def test_valid_purpose_filter(self, client: AsyncClient):
         """Test valid purpose filter."""
-        with patch("app.api.api_v1.endpoints.properties.get_unified_properties_optimized", new_callable=AsyncMock) as mock_list:
+        with patch(
+            "app.api.api_v1.endpoints.properties.get_unified_properties_optimized",
+            new_callable=AsyncMock,
+        ) as mock_list:
             mock_list.return_value = {"items": [], "total": 0, "total_pages": 0}
 
             response = await client.get(
@@ -238,7 +339,7 @@ class TestPropertyFilters:
                 params={"purpose": "rent"},
             )
 
-            assert response.status_code in [200, 422]
+            assert response.status_code == 200
 
 
 class TestPropertyRecommendations:
@@ -247,21 +348,38 @@ class TestPropertyRecommendations:
     @pytest.mark.asyncio
     async def test_recommendations_endpoint(self, client: AsyncClient):
         """Test recommendations endpoint exists."""
-        with patch("app.api.api_v1.endpoints.properties.get_property_recommendations", new_callable=AsyncMock) as mock_rec:
+        with patch(
+            "app.api.api_v1.endpoints.properties.get_property_recommendations",
+            new_callable=AsyncMock,
+        ) as mock_rec:
             mock_rec.return_value = []
 
-            response = await client.get("/api/v1/properties/recommendations")
+            response = await client.get("/api/v1/properties/recommendations/")
 
-            # Endpoint may require auth or not exist
-            assert response.status_code in [200, 401, 404, 422]
+            assert response.status_code == 200
 
 
 class TestMyProperties:
     """Tests for GET /api/v1/properties/me/."""
 
     @pytest.mark.asyncio
+    async def test_my_properties_success(self, authenticated_client: AsyncClient):
+        """Test getting user's own properties."""
+        with patch(
+            "app.api.api_v1.endpoints.properties.list_user_properties",
+            new_callable=AsyncMock,
+        ) as mock_list:
+            mock_list.return_value = [create_mock_property(property_id=1)]
+
+            response = await authenticated_client.get("/api/v1/properties/me/")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert len(data) == 1
+
+    @pytest.mark.asyncio
     async def test_my_properties_requires_auth(self, client: AsyncClient):
         """Test my properties requires authentication."""
         response = await client.get("/api/v1/properties/me/")
 
-        assert response.status_code in [401, 403, 422]
+        assert response.status_code == 401

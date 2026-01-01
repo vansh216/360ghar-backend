@@ -9,6 +9,7 @@ Provides fixtures that mock external API calls to:
 - Gemini/GLM (Vastu analysis)
 - Redis cache
 - Email/SMS services
+- MCP context
 """
 
 from typing import Any, Dict, List, Optional
@@ -17,6 +18,35 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import respx
 from httpx import Response
+
+
+# =============================================================================
+# MCP Context Mocks
+# =============================================================================
+
+@pytest.fixture
+def mock_mcp_context():
+    """
+    Mock MCP context for testing MCP server tools.
+
+    Provides a mock context that simulates the MCP request context.
+    """
+    context = MagicMock()
+    context.session = MagicMock()
+    context.request_id = "test_request_id"
+    yield context
+
+
+@pytest.fixture
+def mock_fcm_send():
+    """
+    Mock FCM send function for notification tests.
+
+    Captures FCM messages for assertion.
+    """
+    with patch("app.services.notifications.send_message", new_callable=AsyncMock) as mock:
+        mock.return_value = {"success": True, "name": "projects/test/messages/12345"}
+        yield mock
 
 
 # =============================================================================
@@ -315,12 +345,14 @@ def mock_cache_manager():
 
     Useful when you want to bypass caching entirely.
     """
-    with patch("app.core.cache.manager.cache_manager") as mock:
+    with patch("app.core.cache.manager.CacheManager") as mock_class:
+        mock = MagicMock()
         mock.get = AsyncMock(return_value=None)
         mock.set = AsyncMock(return_value=True)
         mock.delete = AsyncMock(return_value=True)
         mock.clear = AsyncMock(return_value=True)
         mock.invalidate_pattern = AsyncMock(return_value=0)
+        mock_class.return_value = mock
         yield mock
 
 

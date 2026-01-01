@@ -2,7 +2,7 @@
 Tests for core endpoints (health, config, etc.).
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
@@ -59,60 +59,46 @@ class TestDocsEndpoint:
         assert "openapi" in data
 
 
-class TestCitiesEndpoint:
-    """Tests for GET /api/v1/core/cities endpoint."""
+class TestFAQEndpoints:
+    """Tests for FAQ endpoints."""
 
     @pytest.mark.asyncio
-    async def test_get_cities(self, client: AsyncClient):
-        """Test getting available cities."""
-        with patch("app.api.api_v1.endpoints.core.get_available_cities", new_callable=AsyncMock) as mock_cities:
-            mock_cities.return_value = ["Mumbai", "Delhi", "Bangalore"]
+    async def test_get_faqs_public(self, client: AsyncClient):
+        """Test getting public FAQs."""
+        with patch(
+            "app.api.api_v1.endpoints.core.get_faqs_public_cached",
+            new_callable=AsyncMock,
+        ) as mock_get:
+            mock_get.return_value = []
 
-            response = await client.get("/api/v1/core/cities")
+            response = await client.get("/api/v1/faqs/public")
 
             assert response.status_code == 200
 
 
-class TestLocalitiesEndpoint:
-    """Tests for GET /api/v1/core/localities endpoint."""
+class TestVersionEndpoints:
+    """Tests for version check endpoints."""
 
     @pytest.mark.asyncio
-    async def test_get_localities(self, client: AsyncClient):
-        """Test getting localities for a city."""
-        with patch("app.api.api_v1.endpoints.core.get_localities_for_city", new_callable=AsyncMock) as mock_localities:
-            mock_localities.return_value = ["Andheri", "Bandra", "Powai"]
+    async def test_check_for_updates(self, client: AsyncClient):
+        """Test checking for app updates."""
+        with patch(
+            "app.api.api_v1.endpoints.core.check_for_updates_cached",
+            new_callable=AsyncMock,
+        ) as mock_check:
+            mock_check.return_value = {
+                "update_available": False,
+                "latest_version": "1.0.0",
+                "force_update": False,
+            }
 
-            response = await client.get(
-                "/api/v1/core/localities",
-                params={"city": "Mumbai"},
+            response = await client.post(
+                "/api/v1/versions/check",
+                json={
+                    "app": "360ghar",
+                    "platform": "android",
+                    "current_version": "1.0.0",
+                },
             )
-
-            assert response.status_code == 200
-
-
-class TestPropertyTypesEndpoint:
-    """Tests for GET /api/v1/core/property-types endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_get_property_types(self, client: AsyncClient):
-        """Test getting property types."""
-        response = await client.get("/api/v1/core/property-types")
-
-        assert response.status_code == 200
-
-
-class TestAmenitiesListEndpoint:
-    """Tests for GET /api/v1/amenities/ endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_get_amenities(self, client: AsyncClient):
-        """Test getting available amenities."""
-        with patch("app.api.api_v1.endpoints.amenities.get_all_amenities", new_callable=AsyncMock) as mock_amenities:
-            mock_amenities.return_value = [
-                {"id": 1, "title": "WiFi"},
-                {"id": 2, "title": "Parking"},
-            ]
-
-            response = await client.get("/api/v1/amenities/")
 
             assert response.status_code == 200

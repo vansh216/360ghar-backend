@@ -8,31 +8,30 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+# Import the actual class name
+from app.middleware.security import SecurityHeadersMiddleware
+
 
 class TestSecurityMiddleware:
-    """Tests for SecurityMiddleware class."""
+    """Tests for SecurityHeadersMiddleware class."""
 
     def test_middleware_initialization(self):
         """Test middleware initializes correctly."""
-        from app.middleware.security import SecurityMiddleware
-
         app = FastAPI()
-        middleware = SecurityMiddleware(app)
+        middleware = SecurityHeadersMiddleware(app)
 
         assert middleware.app is not None
 
     @pytest.mark.asyncio
     async def test_security_headers_added(self):
         """Test that security headers are added to response."""
-        from app.middleware.security import SecurityMiddleware
-
         app = FastAPI()
 
         @app.get("/test")
         async def test_endpoint():
             return {"message": "ok"}
 
-        app.add_middleware(SecurityMiddleware)
+        app.add_middleware(SecurityHeadersMiddleware)
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -40,20 +39,20 @@ class TestSecurityMiddleware:
 
             # Check for common security headers
             assert response.status_code == 200
-            # Headers depend on middleware implementation
+            assert response.headers.get("X-Content-Type-Options") == "nosniff"
+            assert response.headers.get("X-Frame-Options") == "DENY"
+            assert response.headers.get("X-XSS-Protection") == "1; mode=block"
 
     @pytest.mark.asyncio
     async def test_cors_headers(self):
         """Test CORS headers are properly set."""
-        from app.middleware.security import SecurityMiddleware
-
         app = FastAPI()
 
         @app.get("/test")
         async def test_endpoint():
             return {"message": "ok"}
 
-        app.add_middleware(SecurityMiddleware)
+        app.add_middleware(SecurityHeadersMiddleware)
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -72,117 +71,106 @@ class TestXSSProtection:
     @pytest.mark.asyncio
     async def test_xss_protection_header(self):
         """Test X-XSS-Protection header is set."""
-        from app.middleware.security import SecurityMiddleware
-
         app = FastAPI()
 
         @app.get("/test")
         async def test_endpoint():
             return {"message": "ok"}
 
-        app.add_middleware(SecurityMiddleware)
+        app.add_middleware(SecurityHeadersMiddleware)
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/test")
 
-            # Header may or may not be present depending on implementation
-            assert response.status_code == 200
+            assert response.headers.get("X-XSS-Protection") == "1; mode=block"
 
 
 class TestContentTypeOptions:
-    """Tests for content type sniffing prevention."""
+    """Tests for content type options header."""
 
     @pytest.mark.asyncio
     async def test_x_content_type_options_header(self):
         """Test X-Content-Type-Options header is set."""
-        from app.middleware.security import SecurityMiddleware
-
         app = FastAPI()
 
         @app.get("/test")
         async def test_endpoint():
             return {"message": "ok"}
 
-        app.add_middleware(SecurityMiddleware)
+        app.add_middleware(SecurityHeadersMiddleware)
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/test")
 
-            # Check if nosniff header is set
-            if "X-Content-Type-Options" in response.headers:
-                assert response.headers["X-Content-Type-Options"] == "nosniff"
+            assert response.headers.get("X-Content-Type-Options") == "nosniff"
 
 
 class TestFrameOptions:
-    """Tests for clickjacking protection."""
+    """Tests for frame options header."""
 
     @pytest.mark.asyncio
     async def test_x_frame_options_header(self):
         """Test X-Frame-Options header is set."""
-        from app.middleware.security import SecurityMiddleware
-
         app = FastAPI()
 
         @app.get("/test")
         async def test_endpoint():
             return {"message": "ok"}
 
-        app.add_middleware(SecurityMiddleware)
+        app.add_middleware(SecurityHeadersMiddleware)
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/test")
 
-            # Check if frame options header is set
-            if "X-Frame-Options" in response.headers:
-                assert response.headers["X-Frame-Options"] in ["DENY", "SAMEORIGIN"]
+            assert response.headers.get("X-Frame-Options") == "DENY"
 
 
 class TestContentSecurityPolicy:
-    """Tests for Content Security Policy."""
+    """Tests for content security policy header."""
 
     @pytest.mark.asyncio
     async def test_csp_header(self):
-        """Test Content-Security-Policy header."""
-        from app.middleware.security import SecurityMiddleware
-
+        """Test Content-Security-Policy header is set in production."""
+        # CSP header is only set in production environment
+        # In test environment, this header may not be present
         app = FastAPI()
 
         @app.get("/test")
         async def test_endpoint():
             return {"message": "ok"}
 
-        app.add_middleware(SecurityMiddleware)
+        app.add_middleware(SecurityHeadersMiddleware)
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/test")
 
-            # CSP may or may not be configured
+            # CSP may or may not be set depending on ENVIRONMENT setting
             assert response.status_code == 200
 
 
 class TestHSTS:
-    """Tests for HTTP Strict Transport Security."""
+    """Tests for HSTS header."""
 
     @pytest.mark.asyncio
     async def test_hsts_header_in_production(self):
         """Test HSTS header is set in production."""
-        from app.middleware.security import SecurityMiddleware
-
+        # HSTS is only set in production environment
+        # In test environment, this header may not be present
         app = FastAPI()
 
         @app.get("/test")
         async def test_endpoint():
             return {"message": "ok"}
 
-        app.add_middleware(SecurityMiddleware)
+        app.add_middleware(SecurityHeadersMiddleware)
 
         transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="https://test") as client:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/test")
 
-            # HSTS is typically only set for HTTPS
+            # HSTS may or may not be set depending on ENVIRONMENT setting
             assert response.status_code == 200

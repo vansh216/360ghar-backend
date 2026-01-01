@@ -2,14 +2,14 @@
 Tests for PM rent service module.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import RentPaymentStatus
+from app.models.enums import RentChargeStatus
 
 
 class TestGenerateRentCharges:
@@ -25,17 +25,17 @@ class TestGenerateRentCharges:
         """Test generating monthly rent charges."""
         from app.services.pm_rent import generate_rent_charges
 
-        with patch("app.services.pm_rent.assert_can_access_lease", new_callable=AsyncMock) as mock_access:
-            mock_access.return_value = test_active_lease
+        result = await generate_rent_charges(
+            db_session,
+            actor=test_user,
+            lease_id=test_active_lease.id,
+            start_month=date.today().replace(day=1),
+            months=1,
+        )
 
-            result = await generate_rent_charges(
-                db_session,
-                actor=test_user,
-                lease_id=test_active_lease.id,
-                for_month=date.today().replace(day=1),
-            )
-
-            assert result is not None
+        assert result is not None
+        assert "created" in result
+        assert "skipped" in result
 
 
 class TestRecordRentPayment:
@@ -51,127 +51,134 @@ class TestRecordRentPayment:
         """Test successful rent payment recording."""
         from app.services.pm_rent import record_rent_payment
 
-        with patch("app.services.pm_rent.assert_can_access_lease", new_callable=AsyncMock) as mock_access:
-            mock_lease = MagicMock()
-            mock_lease.id = test_rent_charge.lease_id
-            mock_access.return_value = mock_lease
+        result = await record_rent_payment(
+            db_session,
+            actor=test_user,
+            charge_id=test_rent_charge.id,
+            amount_paid=50000.0,
+            payment_method="bank_transfer",
+            paid_at=datetime.now(timezone.utc),
+        )
 
-            result = await record_rent_payment(
-                db_session,
-                actor=test_user,
-                charge_id=test_rent_charge.id,
-                amount_paid=50000.0,
-                payment_method="bank_transfer",
-                payment_date=date.today(),
-            )
-
-            assert result is not None
-            assert result.amount_paid == 50000.0
+        assert result is not None
+        assert result.amount_paid == 50000.0
+        assert result.payment_method == "bank_transfer"
 
 
-class TestGetRentHistory:
-    """Tests for get_rent_history function."""
+class TestListRentCharges:
+    """Tests for list_rent_charges function."""
 
     @pytest.mark.asyncio
-    async def test_get_rent_history_for_lease(
+    async def test_list_rent_charges_for_owner(
         self,
         db_session: AsyncSession,
         test_user,
-        test_active_lease,
-        test_rent_charges,
+        test_rent_charge,
     ):
-        """Test getting rent history for a lease."""
-        from app.services.pm_rent import get_rent_history
+        """Test listing rent charges for owner."""
+        from app.services.pm_rent import list_rent_charges
 
-        with patch("app.services.pm_rent.assert_can_access_lease", new_callable=AsyncMock) as mock_access:
-            mock_access.return_value = test_active_lease
-
-            result = await get_rent_history(
-                db_session,
-                actor=test_user,
-                lease_id=test_active_lease.id,
-            )
-
-            assert isinstance(result, list)
-
-
-class TestGetOverdueRent:
-    """Tests for get_overdue_rent function."""
-
-    @pytest.mark.asyncio
-    async def test_get_overdue_rent_charges(
-        self,
-        db_session: AsyncSession,
-        test_user,
-    ):
-        """Test getting overdue rent charges."""
-        from app.services.pm_rent import get_overdue_rent
-
-        result = await get_overdue_rent(
+        result = await list_rent_charges(
             db_session,
             actor=test_user,
         )
 
         assert isinstance(result, list)
+        assert len(result) >= 1
+        # Check returned dict structure
+        if result:
+            item = result[0]
+            assert "charge" in item
+            assert "amount_paid_total" in item
+            assert "outstanding" in item
 
 
-class TestApplyLateFee:
-    """Tests for apply_late_fee function."""
+class TestListRentPayments:
+    """Tests for list_rent_payments function."""
 
     @pytest.mark.asyncio
-    async def test_apply_late_fee(
+    async def test_list_payments_for_owner(
         self,
         db_session: AsyncSession,
         test_user,
-        test_overdue_rent_charge,
+        test_rent_charge,
     ):
-        """Test applying late fee to overdue charge."""
-        from app.services.pm_rent import apply_late_fee
+        """Test listing rent payments for owner."""
+        from app.services.pm_rent import list_rent_payments, record_rent_payment
 
-        with patch("app.services.pm_rent.assert_can_access_lease", new_callable=AsyncMock) as mock_access:
-            mock_lease = MagicMock()
-            mock_lease.late_fee_amount = 500.0
-            mock_access.return_value = mock_lease
-
-            result = await apply_late_fee(
-                db_session,
-                actor=test_user,
-                charge_id=test_overdue_rent_charge.id,
-            )
-
-            assert result is not None
-            assert result.late_fee_applied is not None
-
-
-class TestGetRentSummary:
-    """Tests for get_rent_summary function."""
-
-    @pytest.mark.asyncio
-    async def test_get_rent_summary_for_property(
-        self,
-        db_session: AsyncSession,
-        test_user,
-        test_property,
-    ):
-        """Test getting rent summary for property."""
-        from app.services.pm_rent import get_rent_summary
-
-        result = await get_rent_summary(
+        # First record a payment
+        await record_rent_payment(
             db_session,
             actor=test_user,
-            property_id=test_property.id,
+            charge_id=test_rent_charge.id,
+            amount_paid=25000.0,
+            paid_at=datetime.now(timezone.utc),
         )
 
-        assert "total_collected" in result
-        assert "total_outstanding" in result
+        result = await list_rent_payments(
+            db_session,
+            actor=test_user,
+        )
+
+        assert isinstance(result, list)
+        assert len(result) >= 1
 
 
-class TestRentPaymentStatus:
-    """Tests for rent payment status transitions."""
+class TestRentChargeStatus:
+    """Tests for rent charge status transitions."""
 
-    def test_payment_status_values(self):
-        """Test payment status enum values."""
-        assert RentPaymentStatus.pending.value == "pending"
-        assert RentPaymentStatus.paid.value == "paid"
-        assert RentPaymentStatus.partial.value == "partial"
-        assert RentPaymentStatus.overdue.value == "overdue"
+    def test_charge_status_values(self):
+        """Test charge status enum values."""
+        assert RentChargeStatus.pending.value == "pending"
+        assert RentChargeStatus.paid.value == "paid"
+        assert RentChargeStatus.partial.value == "partial"
+        assert RentChargeStatus.overdue.value == "overdue"
+
+    @pytest.mark.asyncio
+    async def test_partial_payment_updates_status(
+        self,
+        db_session: AsyncSession,
+        test_user,
+        test_rent_charge,
+    ):
+        """Test that partial payment updates charge status."""
+        from app.services.pm_rent import record_rent_payment
+
+        # Make a partial payment
+        await record_rent_payment(
+            db_session,
+            actor=test_user,
+            charge_id=test_rent_charge.id,
+            amount_paid=25000.0,  # Half of 50000
+            paid_at=datetime.now(timezone.utc),
+        )
+
+        # Refresh the charge
+        await db_session.refresh(test_rent_charge)
+
+        # Status should be partial (or paid if we're testing with due date in future)
+        assert test_rent_charge.status in [RentChargeStatus.partial, RentChargeStatus.overdue]
+
+    @pytest.mark.asyncio
+    async def test_full_payment_updates_status(
+        self,
+        db_session: AsyncSession,
+        test_user,
+        test_rent_charge,
+    ):
+        """Test that full payment updates charge status to paid."""
+        from app.services.pm_rent import record_rent_payment
+
+        # Make a full payment
+        await record_rent_payment(
+            db_session,
+            actor=test_user,
+            charge_id=test_rent_charge.id,
+            amount_paid=50000.0,
+            paid_at=datetime.now(timezone.utc),
+        )
+
+        # Refresh the charge
+        await db_session.refresh(test_rent_charge)
+
+        assert test_rent_charge.status == RentChargeStatus.paid

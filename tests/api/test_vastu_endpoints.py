@@ -1,12 +1,79 @@
 """
 Tests for Vastu checker endpoints.
+
+These tests verify the vastu-related API endpoints work correctly.
+They mock the service layer to isolate endpoint testing.
 """
 
+from datetime import datetime
 from io import BytesIO
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
+
+from app.services.ai.vastu import (
+    VastuAnalyzeResponse,
+    VastuAnalysisResult,
+)
+from app.services.ai.vastu.schemas import FloorPlanAnalysis
+
+
+def create_mock_vastu_response(
+    success: bool = True,
+    vastu_score: int = 7,
+) -> VastuAnalyzeResponse:
+    """Create a mock vastu analysis response."""
+    if success:
+        floor_plan_analysis = FloorPlanAnalysis(
+            plot_shape="rectangular",
+            rooms=[],
+            entrance=None,
+            kitchen=None,
+            toilets=None,
+            staircase=None,
+            balconies=None,
+            open_spaces=None,
+            center_area=None,
+            compass_visible=False,
+        )
+        data = VastuAnalysisResult(
+            floor_plan_analysis=floor_plan_analysis,
+            vastu_score=vastu_score,
+            score_explanation="Good overall layout",
+            assumptions=["North is at top"],
+            room_analysis=[],
+            major_defects=[],
+            remedies=[],
+            improvements=[],
+            disclaimer="For informational purposes only.",
+            analysis_confidence=0.9,
+            warnings=[],
+            is_valid_floor_plan=True,
+        )
+        return VastuAnalyzeResponse(
+            success=True,
+            data=data,
+            report_markdown="# Vastu Report",
+            error=None,
+            has_warnings=False,
+            warning_count=0,
+            critical_warnings=False,
+            provider_used="gemini",
+            analyzed_at=datetime.utcnow().isoformat(),
+        )
+    else:
+        return VastuAnalyzeResponse(
+            success=False,
+            data=None,
+            report_markdown=None,
+            error="Analysis failed",
+            has_warnings=False,
+            warning_count=0,
+            critical_warnings=False,
+            provider_used="gemini",
+            analyzed_at=datetime.utcnow().isoformat(),
+        )
 
 
 class TestVastuAnalyzeEndpoint:
@@ -15,12 +82,11 @@ class TestVastuAnalyzeEndpoint:
     @pytest.mark.asyncio
     async def test_analyze_floor_plan_success(self, client: AsyncClient):
         """Test successful Vastu analysis."""
-        with patch("app.api.api_v1.endpoints.vastu.analyze_vastu", new_callable=AsyncMock) as mock_analyze:
-            mock_result = MagicMock()
-            mock_result.success = True
-            mock_result.data = MagicMock()
-            mock_result.data.vastu_score = 7.5
-            mock_analyze.return_value = mock_result
+        with patch(
+            "app.api.api_v1.endpoints.vastu.analyze_vastu",
+            new_callable=AsyncMock,
+        ) as mock_analyze:
+            mock_analyze.return_value = create_mock_vastu_response(success=True, vastu_score=7)
 
             # Create test image data
             image_content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
@@ -37,6 +103,9 @@ class TestVastuAnalyzeEndpoint:
             )
 
             assert response.status_code == 200
+            resp_data = response.json()
+            assert resp_data["success"] is True
+            assert resp_data["data"]["vastu_score"] == 7
 
     @pytest.mark.asyncio
     async def test_analyze_invalid_file_type(self, client: AsyncClient):
@@ -121,12 +190,11 @@ class TestVastuAnalyzeEndpoint:
     @pytest.mark.asyncio
     async def test_analyze_with_all_north_directions(self, client: AsyncClient):
         """Test analysis with various north directions."""
-        with patch("app.api.api_v1.endpoints.vastu.analyze_vastu", new_callable=AsyncMock) as mock_analyze:
-            mock_result = MagicMock()
-            mock_result.success = True
-            mock_result.data = MagicMock()
-            mock_result.data.vastu_score = 8.0
-            mock_analyze.return_value = mock_result
+        with patch(
+            "app.api.api_v1.endpoints.vastu.analyze_vastu",
+            new_callable=AsyncMock,
+        ) as mock_analyze:
+            mock_analyze.return_value = create_mock_vastu_response(success=True, vastu_score=8)
 
             image_content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
 
@@ -145,12 +213,11 @@ class TestVastuAnalyzeEndpoint:
     @pytest.mark.asyncio
     async def test_analyze_jpeg_image(self, client: AsyncClient):
         """Test analysis with JPEG image."""
-        with patch("app.api.api_v1.endpoints.vastu.analyze_vastu", new_callable=AsyncMock) as mock_analyze:
-            mock_result = MagicMock()
-            mock_result.success = True
-            mock_result.data = MagicMock()
-            mock_result.data.vastu_score = 6.5
-            mock_analyze.return_value = mock_result
+        with patch(
+            "app.api.api_v1.endpoints.vastu.analyze_vastu",
+            new_callable=AsyncMock,
+        ) as mock_analyze:
+            mock_analyze.return_value = create_mock_vastu_response(success=True, vastu_score=6)
 
             # JPEG header
             image_content = b"\xff\xd8\xff\xe0" + b"\x00" * 100
@@ -168,12 +235,11 @@ class TestVastuAnalyzeEndpoint:
     @pytest.mark.asyncio
     async def test_analyze_with_glm_provider(self, client: AsyncClient):
         """Test analysis with GLM provider."""
-        with patch("app.api.api_v1.endpoints.vastu.analyze_vastu", new_callable=AsyncMock) as mock_analyze:
-            mock_result = MagicMock()
-            mock_result.success = True
-            mock_result.data = MagicMock()
-            mock_result.data.vastu_score = 7.0
-            mock_analyze.return_value = mock_result
+        with patch(
+            "app.api.api_v1.endpoints.vastu.analyze_vastu",
+            new_callable=AsyncMock,
+        ) as mock_analyze:
+            mock_analyze.return_value = create_mock_vastu_response(success=True, vastu_score=7)
 
             image_content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
             files = {"image": ("floor_plan.png", BytesIO(image_content), "image/png")}

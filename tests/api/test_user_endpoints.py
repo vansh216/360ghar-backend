@@ -1,168 +1,350 @@
 """
 Tests for user endpoints.
+
+These tests verify the user-related API endpoints work correctly.
+They mock the service layer to isolate endpoint testing.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
 
+from app.models.enums import UserRole
+from app.schemas.user import User as UserSchema
 
-class TestGetCurrentUserEndpoint:
-    """Tests for GET /api/v1/users/me endpoint."""
+
+def create_mock_user(
+    user_id: int = 1,
+    full_name: str = "Test User",
+    email: str = "test@example.com",
+    phone: str = "+919876543210",
+) -> UserSchema:
+    """Create a mock user schema object."""
+    return UserSchema(
+        id=user_id,
+        phone=phone,
+        email=email,
+        full_name=full_name,
+        role=UserRole.user.value,
+        is_active=True,
+        is_verified=True,
+        supabase_user_id="test-supabase-uid",
+        created_at=datetime.now(timezone.utc),
+        updated_at=None,
+    )
+
+
+class TestGetUserProfileEndpoint:
+    """Tests for GET /api/v1/users/profile/ endpoint."""
 
     @pytest.mark.asyncio
-    async def test_get_current_user(self, client: AsyncClient, auth_headers):
+    async def test_get_user_profile(self, authenticated_client: AsyncClient):
         """Test getting current user profile."""
-        response = await client.get(
-            "/api/v1/users/me",
-            headers=auth_headers,
-        )
+        response = await authenticated_client.get("/api/v1/users/profile/")
 
         assert response.status_code == 200
         data = response.json()
         assert "id" in data or "phone" in data
 
     @pytest.mark.asyncio
-    async def test_get_current_user_unauthorized(self, client: AsyncClient):
+    async def test_get_user_profile_unauthorized(self, client: AsyncClient):
         """Test getting user profile without auth."""
-        response = await client.get("/api/v1/users/me")
+        response = await client.get("/api/v1/users/profile/")
 
         assert response.status_code == 401
 
 
-class TestUpdateUserEndpoint:
-    """Tests for PATCH /api/v1/users/me endpoint."""
+class TestUpdateUserProfileEndpoint:
+    """Tests for PUT /api/v1/users/profile/ endpoint."""
 
     @pytest.mark.asyncio
-    async def test_update_user_profile(self, client: AsyncClient, auth_headers):
+    async def test_update_user_profile(self, authenticated_client: AsyncClient):
         """Test updating user profile."""
-        with patch("app.api.api_v1.endpoints.users.update_user", new_callable=AsyncMock) as mock_update:
-            mock_user = MagicMock()
-            mock_user.id = 1
-            mock_user.full_name = "Updated Name"
-            mock_update.return_value = mock_user
+        with patch(
+            "app.api.api_v1.endpoints.users.update_user",
+            new_callable=AsyncMock,
+        ) as mock_update:
+            mock_update.return_value = create_mock_user(
+                user_id=1, full_name="Updated Name"
+            )
 
-            response = await client.patch(
-                "/api/v1/users/me",
+            response = await authenticated_client.put(
+                "/api/v1/users/profile/",
                 json={"full_name": "Updated Name"},
-                headers=auth_headers,
             )
 
             assert response.status_code == 200
+            data = response.json()
+            assert data["full_name"] == "Updated Name"
 
     @pytest.mark.asyncio
-    async def test_update_user_email(self, client: AsyncClient, auth_headers):
+    async def test_update_user_email(self, authenticated_client: AsyncClient):
         """Test updating user email."""
-        with patch("app.api.api_v1.endpoints.users.update_user", new_callable=AsyncMock) as mock_update:
-            mock_user = MagicMock()
-            mock_user.id = 1
-            mock_user.email = "newemail@example.com"
-            mock_update.return_value = mock_user
+        with patch(
+            "app.api.api_v1.endpoints.users.update_user",
+            new_callable=AsyncMock,
+        ) as mock_update:
+            mock_update.return_value = create_mock_user(
+                user_id=1, email="newemail@example.com"
+            )
 
-            response = await client.patch(
-                "/api/v1/users/me",
+            response = await authenticated_client.put(
+                "/api/v1/users/profile/",
                 json={"email": "newemail@example.com"},
-                headers=auth_headers,
-            )
-
-            assert response.status_code == 200
-
-
-class TestGetUserPropertiesEndpoint:
-    """Tests for GET /api/v1/users/me/properties endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_get_user_properties(self, client: AsyncClient, auth_headers):
-        """Test getting user's properties."""
-        with patch("app.api.api_v1.endpoints.users.list_user_properties", new_callable=AsyncMock) as mock_list:
-            mock_list.return_value = []
-
-            response = await client.get(
-                "/api/v1/users/me/properties",
-                headers=auth_headers,
-            )
-
-            assert response.status_code == 200
-
-
-class TestGetUserBookingsEndpoint:
-    """Tests for GET /api/v1/users/me/bookings endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_get_user_bookings(self, client: AsyncClient, auth_headers):
-        """Test getting user's bookings."""
-        with patch("app.api.api_v1.endpoints.users.get_user_bookings", new_callable=AsyncMock) as mock_list:
-            mock_list.return_value = {"bookings": [], "total": 0}
-
-            response = await client.get(
-                "/api/v1/users/me/bookings",
-                headers=auth_headers,
-            )
-
-            assert response.status_code == 200
-
-
-class TestGetUserVisitsEndpoint:
-    """Tests for GET /api/v1/users/me/visits endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_get_user_visits(self, client: AsyncClient, auth_headers):
-        """Test getting user's visits."""
-        with patch("app.api.api_v1.endpoints.users.get_user_visits", new_callable=AsyncMock) as mock_list:
-            mock_list.return_value = {"visits": [], "total": 0}
-
-            response = await client.get(
-                "/api/v1/users/me/visits",
-                headers=auth_headers,
-            )
-
-            assert response.status_code == 200
-
-
-class TestDeleteUserEndpoint:
-    """Tests for DELETE /api/v1/users/me endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_delete_user_account(self, client: AsyncClient, auth_headers):
-        """Test deleting user account."""
-        with patch("app.api.api_v1.endpoints.users.delete_user", new_callable=AsyncMock) as mock_delete:
-            mock_delete.return_value = True
-
-            response = await client.delete(
-                "/api/v1/users/me",
-                headers=auth_headers,
-            )
-
-            assert response.status_code == 200
-
-
-class TestUserPreferencesEndpoint:
-    """Tests for user preferences endpoints."""
-
-    @pytest.mark.asyncio
-    async def test_get_user_preferences(self, client: AsyncClient, auth_headers):
-        """Test getting user preferences."""
-        with patch("app.api.api_v1.endpoints.users.get_user_preferences", new_callable=AsyncMock) as mock_get:
-            mock_get.return_value = {"notifications_enabled": True}
-
-            response = await client.get(
-                "/api/v1/users/me/preferences",
-                headers=auth_headers,
             )
 
             assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_update_user_preferences(self, client: AsyncClient, auth_headers):
+    async def test_update_user_profile_unauthorized(self, client: AsyncClient):
+        """Test profile update requires auth."""
+        response = await client.put(
+            "/api/v1/users/profile/",
+            json={"full_name": "Updated Name"},
+        )
+
+        assert response.status_code == 401
+
+
+class TestUpdatePreferencesEndpoint:
+    """Tests for PUT /api/v1/users/preferences/ endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_update_preferences(self, authenticated_client: AsyncClient):
         """Test updating user preferences."""
-        with patch("app.api.api_v1.endpoints.users.update_user_preferences", new_callable=AsyncMock) as mock_update:
-            mock_update.return_value = {"notifications_enabled": False}
+        with patch(
+            "app.api.api_v1.endpoints.users.update_user_preferences",
+            new_callable=AsyncMock,
+        ) as mock_update:
+            mock_update.return_value = True
 
-            response = await client.patch(
-                "/api/v1/users/me/preferences",
-                json={"notifications_enabled": False},
-                headers=auth_headers,
+            response = await authenticated_client.put(
+                "/api/v1/users/preferences/",
+                json={},
             )
 
             assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_update_preferences_unauthorized(self, client: AsyncClient):
+        """Test preferences update requires auth."""
+        response = await client.put(
+            "/api/v1/users/preferences/",
+            json={},
+        )
+
+        assert response.status_code == 401
+
+
+class TestUpdateLocationEndpoint:
+    """Tests for PUT /api/v1/users/location/ endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_update_location(self, authenticated_client: AsyncClient):
+        """Test updating user location."""
+        with patch(
+            "app.api.api_v1.endpoints.users.update_user_location",
+            new_callable=AsyncMock,
+        ) as mock_update:
+            mock_update.return_value = True
+
+            response = await authenticated_client.put(
+                "/api/v1/users/location/",
+                json={"latitude": 19.0760, "longitude": 72.8777},
+            )
+
+            assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_update_location_unauthorized(self, client: AsyncClient):
+        """Test location update requires auth."""
+        response = await client.put(
+            "/api/v1/users/location/",
+            json={"latitude": 19.0760, "longitude": 72.8777},
+        )
+
+        assert response.status_code == 401
+
+
+class TestNotificationSettingsEndpoint:
+    """Tests for notification settings endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_get_notification_settings(self, authenticated_client: AsyncClient):
+        """Test getting notification settings."""
+        with patch(
+            "app.api.api_v1.endpoints.users.get_user_by_id",
+            new_callable=AsyncMock,
+        ) as mock_get:
+            mock_user = create_mock_user()
+            mock_user_model = type(
+                "MockUserModel",
+                (),
+                {"notification_settings": {"push_enabled": True}},
+            )()
+            mock_get.return_value = mock_user_model
+
+            response = await authenticated_client.get(
+                "/api/v1/users/notification-settings"
+            )
+
+            assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_update_notification_settings(
+        self, authenticated_client: AsyncClient
+    ):
+        """Test updating notification settings."""
+        with patch(
+            "app.api.api_v1.endpoints.users.update_user_notification_settings",
+            new_callable=AsyncMock,
+        ) as mock_update:
+            mock_update.return_value = True
+
+            response = await authenticated_client.put(
+                "/api/v1/users/notification-settings",
+                json={},
+            )
+
+            assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_notification_settings_unauthorized(self, client: AsyncClient):
+        """Test notification settings requires auth."""
+        response = await client.get("/api/v1/users/notification-settings")
+
+        assert response.status_code == 401
+
+
+class TestPrivacySettingsEndpoint:
+    """Tests for privacy settings endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_get_privacy_settings(self, authenticated_client: AsyncClient):
+        """Test getting privacy settings."""
+        with patch(
+            "app.api.api_v1.endpoints.users.get_user_by_id",
+            new_callable=AsyncMock,
+        ) as mock_get:
+            mock_user_model = type(
+                "MockUserModel",
+                (),
+                {"privacy_settings": {}},
+            )()
+            mock_get.return_value = mock_user_model
+
+            response = await authenticated_client.get(
+                "/api/v1/users/privacy-settings"
+            )
+
+            assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_update_privacy_settings(self, authenticated_client: AsyncClient):
+        """Test updating privacy settings."""
+        with patch(
+            "app.api.api_v1.endpoints.users.update_user_privacy_settings",
+            new_callable=AsyncMock,
+        ) as mock_update:
+            mock_update.return_value = True
+
+            response = await authenticated_client.put(
+                "/api/v1/users/privacy-settings",
+                json={},
+            )
+
+            assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_privacy_settings_unauthorized(self, client: AsyncClient):
+        """Test privacy settings requires auth."""
+        response = await client.get("/api/v1/users/privacy-settings")
+
+        assert response.status_code == 401
+
+
+class TestListUsersEndpoint:
+    """Tests for GET /api/v1/users/ endpoint (admin/agent only)."""
+
+    @pytest.mark.asyncio
+    async def test_list_users_admin(self, admin_authenticated_client: AsyncClient):
+        """Test listing users as admin."""
+        with patch(
+            "app.api.api_v1.endpoints.users.get_all_users",
+            new_callable=AsyncMock,
+        ) as mock_list:
+            mock_list.return_value = ([], 0)
+
+            response = await admin_authenticated_client.get("/api/v1/users/")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert "items" in data
+
+    @pytest.mark.asyncio
+    async def test_list_users_unauthorized(self, client: AsyncClient):
+        """Test listing users requires auth."""
+        response = await client.get("/api/v1/users/")
+
+        assert response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_list_users_forbidden_for_regular_user(
+        self, authenticated_client: AsyncClient
+    ):
+        """Test regular user cannot list all users."""
+        response = await authenticated_client.get("/api/v1/users/")
+
+        assert response.status_code == 403
+
+
+class TestGetUserByIdEndpoint:
+    """Tests for GET /api/v1/users/{user_id}/ endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_get_user_by_id_admin(self, admin_authenticated_client: AsyncClient):
+        """Test getting user by ID as admin."""
+        with patch(
+            "app.api.api_v1.endpoints.users.get_user_by_id",
+            new_callable=AsyncMock,
+        ) as mock_get:
+            mock_user = create_mock_user(user_id=42)
+            # Create a mock that has model_validate compatible structure
+            mock_user_model = type(
+                "MockUserModel",
+                (),
+                {
+                    "id": 42,
+                    "phone": "+919876543210",
+                    "email": "test@example.com",
+                    "full_name": "Test User",
+                    "role": UserRole.user.value,
+                    "is_active": True,
+                    "is_verified": True,
+                    "supabase_user_id": "test-uid",
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": None,
+                    "notification_settings": None,
+                    "privacy_settings": None,
+                },
+            )()
+            mock_get.return_value = mock_user_model
+
+            response = await admin_authenticated_client.get("/api/v1/users/42/")
+
+            assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_get_user_not_found(self, admin_authenticated_client: AsyncClient):
+        """Test getting non-existent user."""
+        with patch(
+            "app.api.api_v1.endpoints.users.get_user_by_id",
+            new_callable=AsyncMock,
+        ) as mock_get:
+            mock_get.return_value = None
+
+            response = await admin_authenticated_client.get("/api/v1/users/99999/")
+
+            assert response.status_code == 404

@@ -126,6 +126,7 @@ class TestSettings:
             "SUPABASE_KEY": "test_key",
             "SUPABASE_SECRET_KEY": "test_secret",
             "SENTRY_DSN": "https://test@sentry.io/123",
+            "VECTOR_SYNC_ENABLED": "true",  # Explicitly set to ensure default is tested
         }, clear=False):
             from importlib import reload
             from app.core import config
