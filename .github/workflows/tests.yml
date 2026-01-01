@@ -101,7 +101,7 @@ jobs:
           ENVIRONMENT: test
           CI: "true"
         run: |
-          pytest tests/ -v --cov=app --cov-report=xml --cov-report=term-missing --cov-fail-under=90 -n auto
+          pytest tests/ -v --cov=app --cov-report=xml --cov-report=term-missing --cov-fail-under=90
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
