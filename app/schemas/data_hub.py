@@ -105,7 +105,7 @@ class BankAuctionResponse(BaseModel):
     reserve_price: Optional[float] = None
     emd_amount: Optional[float] = None
     auction_date: Optional[date] = None
-    emd_deadline: Optional[date] = None
+    emd_deadline: Optional[date] = Field(None, alias="auction_end_date")
     # Contact info is split in model; serialised as combined string by router layer.
     # Expose as Optional here so the schema stays forward-compatible.
     contact_info: Optional[str] = None
