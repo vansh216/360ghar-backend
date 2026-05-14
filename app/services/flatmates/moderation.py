@@ -469,29 +469,42 @@ async def pause_expired_flatmate_listings(
         effective_now = effective_now.replace(tzinfo=timezone.utc)
     cutoff = datetime.combine(effective_now.date(), time.min, tzinfo=effective_now.tzinfo)
 
-    result = await db.execute(
-        select(Property).where(
-            Property.property_type.in_(PG_FLATMATE_TYPES),
-            Property.purpose == PropertyPurpose.rent,
-            Property.available_from.is_not(None),
-            Property.available_from < cutoff,
-            or_(
-                Property.is_available.is_(True),
-                func.coalesce(
-                    Property.listing_preferences["moderation_status"].as_string(),
-                    "live",
-                )
-                == "live",
-            ),
-        )
-    )
-    listings = result.scalars().all()
+    batch_size = 500
     paused_count = 0
-    for listing in listings:
-        if apply_expired_move_in_pause(listing, now=effective_now):
-            paused_count += 1
-    if paused_count:
-        await db.flush()
+    while True:
+        result = await db.execute(
+            select(Property)
+            .where(
+                Property.property_type.in_(PG_FLATMATE_TYPES),
+                Property.purpose == PropertyPurpose.rent,
+                Property.available_from.is_not(None),
+                Property.available_from < cutoff,
+                or_(
+                    Property.is_available.is_(True),
+                    func.coalesce(
+                        Property.listing_preferences["moderation_status"].as_string(),
+                        "live",
+                    )
+                    == "live",
+                ),
+            )
+            .order_by(Property.id)
+            .limit(batch_size)
+        )
+        listings = list(result.scalars().all())
+        if not listings:
+            break
+
+        batch_paused = 0
+        for listing in listings:
+            if apply_expired_move_in_pause(listing, now=effective_now):
+                paused_count += 1
+                batch_paused += 1
+
+        if batch_paused:
+            await db.flush()
+        else:
+            break
     return paused_count
 
 

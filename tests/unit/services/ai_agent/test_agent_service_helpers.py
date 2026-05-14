@@ -1,8 +1,3 @@
-from app.services.ai_agent.agent_service import (
-    _build_message_history,
-    _sse_event,
-    _summarize_result,
-)
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
@@ -10,6 +5,12 @@ from pydantic_ai.messages import (
     ToolCallPart,
     ToolReturnPart,
     UserPromptPart,
+)
+
+from app.services.ai_agent.agent_service import (
+    _build_message_history,
+    _sse_event,
+    _summarize_result,
 )
 
 

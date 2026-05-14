@@ -1,5 +1,7 @@
 """DRT auction scraper — Debt Recovery Tribunal Delhi benches (DRT-I and DRT-II)
 for court-ordered property sales under RDDBFI/SARFAESI Acts."""
+from __future__ import annotations
+
 import asyncio
 import logging
 import re
@@ -57,7 +59,7 @@ class DRTAuctionScraper(BaseScraper):
 
     def _parse_auction_notices(self, html: str, bench_cfg: dict) -> list[dict]:
         """Parse DRT auction notice listings (table-based)."""
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         records = []
 
         for table in soup.find_all("table"):
@@ -154,7 +156,7 @@ class DRTAuctionScraper(BaseScraper):
 
     def _parse_search_page(self, html: str) -> list[dict]:
         """Parse the main DRT search/listing page for any Delhi auction references."""
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         records = []
 
         for table in soup.find_all("table"):

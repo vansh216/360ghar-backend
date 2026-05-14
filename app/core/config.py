@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 from pathlib import Path
 
@@ -104,8 +106,8 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379"
 
     # Main pool (HTTP/MCP request traffic)
-    DB_POOL_SIZE: int = 5
-    DB_MAX_OVERFLOW: int = 5
+    DB_POOL_SIZE: int = 3
+    DB_MAX_OVERFLOW: int = 3
     DB_POOL_TIMEOUT: int = 10
     DB_POOL_RECYCLE: int = 300
     # Background pool (schedulers, scrapers, long-running tasks)
@@ -128,9 +130,15 @@ class Settings(BaseSettings):
         return self.SUPABASE_PUBLISHABLE_KEY.strip()
 
     # ── Cache ────────────────────────────────────────────────────────────────────
-    CACHE_BACKEND: str = "memory"  # "memory" or "redis"
+    CACHE_BACKEND: str = "disk"  # "disk", "memory", or "redis"
     CACHE_DEFAULT_TTL: int = 300  # 5 minutes default
     CACHE_MEMORY_MAX_SIZE: int = 1000  # Max entries for in-memory cache
+    CACHE_MEMORY_MAX_ENTRY_BYTES: int = 1_000_000
+    # Disk cache path — use a persistent volume in Docker to survive restarts
+    CACHE_DISK_DIR: str = "./cache"
+    CACHE_DISK_MAX_SIZE: int = 1000
+    CACHE_DISK_MAX_ENTRY_BYTES: int = 1_000_000
+    CACHE_REDIS_MAX_CONNECTIONS: int = 15
     CACHE_KEY_PREFIX: str = "ghar360:"  # Redis key prefix
     # Endpoint-specific TTLs (in seconds)
     CACHE_TTL_AMENITIES: int = 86400  # 24 hours

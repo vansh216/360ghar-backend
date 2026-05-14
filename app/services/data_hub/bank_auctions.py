@@ -1,4 +1,6 @@
 """Bank auction scraper — 3 sources: SARFAESI (SBI), IBAPI, MSTC."""
+from __future__ import annotations
+
 import asyncio
 import logging
 from datetime import date, datetime
@@ -51,7 +53,7 @@ class BankAuctionScraper(BaseScraper):
 
     def _parse_auction_html(self, html: str, source_cfg: dict) -> list[dict]:
         """Best-effort parse of auction table rows."""
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         records = []
         # Look for common table patterns on auction sites
         for table in soup.find_all("table"):

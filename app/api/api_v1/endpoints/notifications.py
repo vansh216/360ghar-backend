@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import (
@@ -14,6 +16,7 @@ from app.core.database import get_db
 from app.schemas.user import User as UserSchema
 from app.services.notification_config import NOTIFICATION_TYPES, NotificationCategory
 from app.services.notification_dispatcher import (
+    count_users_for_segment,
     dispatch_notification_to_user,
     dispatch_notification_to_users,
     find_user_ids_for_segment,
@@ -38,6 +41,7 @@ from app.services.notifications import (
 )
 
 router = APIRouter()
+MAX_MARKETING_RECIPIENTS = 5000
 
 
 class DeviceRegister(BaseModel):
@@ -288,15 +292,21 @@ async def send_marketing_broadcast(
     _ensure_marketing_type(req.type_key)
     from app.models.users import User as UserModel
 
-    stmt = select(UserModel.id).where(UserModel.is_active.is_(True))
+    total_result = await db.execute(
+        select(func.count(UserModel.id)).where(UserModel.is_active.is_(True))
+    )
+    total_users = int(total_result.scalar_one() or 0)
+    stmt = (
+        select(UserModel.id)
+        .where(UserModel.is_active.is_(True))
+        .order_by(UserModel.id)
+        .limit(MAX_MARKETING_RECIPIENTS)
+    )
     res = await db.execute(stmt)
     user_ids = [row[0] for row in res.all()]
-    # Safety limit to avoid accidental massive blasts from the dashboard
-    MAX_RECIPIENTS = 5000
-    limited_ids = user_ids[:MAX_RECIPIENTS]
     summary = await dispatch_notification_to_users(
         db,
-        user_db_ids=limited_ids,
+        user_db_ids=user_ids,
         type_key=req.type_key,
         title=req.title,
         body=req.body,
@@ -304,8 +314,8 @@ async def send_marketing_broadcast(
         deep_link=req.deep_link,
     )
     return {
-        "requested": len(user_ids),
-        "processed": len(limited_ids),
+        "requested": total_users,
+        "processed": len(user_ids),
         "summary": summary,
     }
 
@@ -318,19 +328,24 @@ async def send_marketing_segment(
 ):
     """Send a marketing notification to a segment of users based on simple filters."""
     _ensure_marketing_type(req.type_key)
-    user_ids = await find_user_ids_for_segment(
+    requested = await count_users_for_segment(
         db,
         role=req.filter.role,
         agent_id=req.filter.agent_id,
         is_active=req.filter.is_active,
     )
-    MAX_RECIPIENTS = 5000
-    limited_ids = user_ids[:MAX_RECIPIENTS]
-    if not limited_ids:
+    user_ids = await find_user_ids_for_segment(
+        db,
+        role=req.filter.role,
+        agent_id=req.filter.agent_id,
+        is_active=req.filter.is_active,
+        limit=MAX_MARKETING_RECIPIENTS,
+    )
+    if not user_ids:
         return {"requested": 0, "processed": 0, "summary": {"requested": 0, "succeeded": 0, "details": []}}
     summary = await dispatch_notification_to_users(
         db,
-        user_db_ids=limited_ids,
+        user_db_ids=user_ids,
         type_key=req.type_key,
         title=req.title,
         body=req.body,
@@ -338,7 +353,7 @@ async def send_marketing_segment(
         deep_link=req.deep_link,
     )
     return {
-        "requested": len(user_ids),
-        "processed": len(limited_ids),
+        "requested": requested,
+        "processed": len(user_ids),
         "summary": summary,
     }

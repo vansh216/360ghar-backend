@@ -20,6 +20,23 @@ FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging"
 
 _fcm_credentials: service_account.Credentials | None = None
 _fcm_token_expiry: float = 0.0
+_fcm_client: httpx.AsyncClient | None = None
+
+
+def _get_fcm_client() -> httpx.AsyncClient:
+    """Return a reusable FCM HTTP client."""
+    global _fcm_client
+    if _fcm_client is None or _fcm_client.is_closed:
+        _fcm_client = httpx.AsyncClient(timeout=15)
+    return _fcm_client
+
+
+async def close_fcm_client() -> None:
+    """Close the reusable FCM HTTP client."""
+    global _fcm_client
+    if _fcm_client is not None and not _fcm_client.is_closed:
+        await _fcm_client.aclose()
+    _fcm_client = None
 
 
 def _access_token() -> str:
@@ -123,7 +140,7 @@ async def send_message(message: dict[str, Any]) -> dict[str, Any]:
     token = _access_token()
     project_id = settings.FIREBASE_PROJECT_ID
     url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.post(url, headers={"Authorization": f"Bearer {token}"}, json=message)
-        resp.raise_for_status()
-        return dict(resp.json())
+    client = _get_fcm_client()
+    resp = await client.post(url, headers={"Authorization": f"Bearer {token}"}, json=message)
+    resp.raise_for_status()
+    return dict(resp.json())

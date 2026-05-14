@@ -3,9 +3,12 @@ CacheManager facade that provides a unified interface and handles
 backend selection based on configuration.
 """
 
+from __future__ import annotations
+
 from enum import Enum
 from typing import Any
 
+from app.core.cache.backends.disk import DiskCacheBackend
 from app.core.cache.backends.memory import InMemoryCacheBackend
 from app.core.cache.backends.redis import RedisCacheBackend
 from app.core.cache.interface import CacheBackend
@@ -17,6 +20,7 @@ logger = get_logger(__name__)
 class CacheBackendType(str, Enum):
     """Supported cache backend types."""
 
+    DISK = "disk"
     MEMORY = "memory"
     REDIS = "redis"
 
@@ -101,7 +105,7 @@ class CacheManager:
         self._use_fallback = False
 
     @classmethod
-    def create_from_config(cls, settings: Any) -> "CacheManager":
+    def create_from_config(cls, settings: Any) -> CacheManager:
         """Factory method to create CacheManager from app settings.
 
         When SERVERLESS_ENABLED is true, forces the in-memory backend to
@@ -114,33 +118,49 @@ class CacheManager:
         Returns:
             Configured CacheManager instance
         """
-        if getattr(settings, "SERVERLESS_ENABLED", False):
+        if getattr(settings, "SERVERLESS_ENABLED", False) is True:
             logger.info("Serverless mode — using in-memory cache (no Redis keep-alive)")
             primary: CacheBackend = InMemoryCacheBackend(
                 max_size=getattr(settings, "CACHE_MEMORY_MAX_SIZE", 1000),
                 default_ttl=getattr(settings, "CACHE_DEFAULT_TTL", 300),
+                max_entry_bytes=getattr(settings, "CACHE_MEMORY_MAX_ENTRY_BYTES", 1_000_000),
             )
             return cls(backend=primary)
 
         backend_type = CacheBackendType(
-            getattr(settings, "CACHE_BACKEND", "memory")
+            getattr(settings, "CACHE_BACKEND", "disk")
         )
 
         if backend_type == CacheBackendType.REDIS:
             primary = RedisCacheBackend(
                 redis_url=settings.REDIS_URL,
                 default_ttl=getattr(settings, "CACHE_DEFAULT_TTL", 300),
+                max_connections=getattr(settings, "CACHE_REDIS_MAX_CONNECTIONS", 15),
                 key_prefix=getattr(settings, "CACHE_KEY_PREFIX", "ghar360:"),
             )
             # In-memory fallback when Redis is unavailable
             fallback = InMemoryCacheBackend(
                 max_size=getattr(settings, "CACHE_MEMORY_MAX_SIZE", 500),
                 default_ttl=getattr(settings, "CACHE_DEFAULT_TTL", 300),
+                max_entry_bytes=getattr(settings, "CACHE_MEMORY_MAX_ENTRY_BYTES", 1_000_000),
+            )
+        elif backend_type == CacheBackendType.DISK:
+            primary = DiskCacheBackend(
+                directory=getattr(settings, "CACHE_DISK_DIR", "/tmp/ghar360_cache"),
+                max_size=getattr(settings, "CACHE_DISK_MAX_SIZE", 1000),
+                default_ttl=getattr(settings, "CACHE_DEFAULT_TTL", 300),
+                max_entry_bytes=getattr(settings, "CACHE_DISK_MAX_ENTRY_BYTES", 1_000_000),
+            )
+            fallback = InMemoryCacheBackend(
+                max_size=getattr(settings, "CACHE_MEMORY_MAX_SIZE", 250),
+                default_ttl=getattr(settings, "CACHE_DEFAULT_TTL", 300),
+                max_entry_bytes=getattr(settings, "CACHE_MEMORY_MAX_ENTRY_BYTES", 1_000_000),
             )
         else:
             primary = InMemoryCacheBackend(
                 max_size=getattr(settings, "CACHE_MEMORY_MAX_SIZE", 1000),
                 default_ttl=getattr(settings, "CACHE_DEFAULT_TTL", 300),
+                max_entry_bytes=getattr(settings, "CACHE_MEMORY_MAX_ENTRY_BYTES", 1_000_000),
             )
             fallback = None
 

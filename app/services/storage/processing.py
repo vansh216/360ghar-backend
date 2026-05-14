@@ -4,12 +4,14 @@ Image processing pipeline for the storage service.
 Thumbnail generation, WebP conversion, and scene-image upload orchestration
 that was previously embedded in the StorageService class.
 """
+from __future__ import annotations
+
+import asyncio
 import uuid
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import UploadFile
-from PIL import Image
 
 from app.core.exceptions import InvalidFileException, StorageException
 from app.core.logging import get_logger
@@ -17,7 +19,12 @@ from app.services import image_processing
 
 from .helpers import VALID_IMAGE_TYPES
 
+if TYPE_CHECKING:
+    from PIL.Image import Image as PILImage
+
 logger = get_logger(__name__)
+
+_IMAGE_PROCESSING_SEMAPHORE = asyncio.Semaphore(2)
 
 
 async def upload_scene_image(
@@ -53,33 +60,39 @@ async def upload_scene_image(
         Dict with image_url, thumbnail_url, web_url, and metadata.
     """
     try:
+        from PIL import Image
+
         # Validate file type
         if file.content_type not in VALID_IMAGE_TYPES:
             raise InvalidFileException(detail="Invalid image type")
 
-        # Read file content
-        file_content = await file.read()
+        async with _IMAGE_PROCESSING_SEMAPHORE:
+            # Read file content and derive resized images under the memory-heavy gate.
+            file_content = await file.read()
 
-        # Open image once for all operations
-        import io
-        with Image.open(io.BytesIO(file_content)) as img:
-            width, height = img.size
-            aspect_ratio = width / height if height > 0 else 0
-            is_panorama = abs(aspect_ratio - 2.0) <= 0.1
-            if not is_panorama:
-                logger.warning("Image may not be a valid 360 panorama for scene %s", scene_id)
+            # Open image once for all operations
+            import io
+            with Image.open(io.BytesIO(file_content)) as img:
+                width, height = img.size
+                aspect_ratio = width / height if height > 0 else 0
+                is_panorama = abs(aspect_ratio - 2.0) <= 0.1
+                if not is_panorama:
+                    logger.warning("Image may not be a valid 360 panorama for scene %s", scene_id)
 
-            # Extract metadata using the already-open image (no extra opens)
-            image_info = image_processing.get_image_info(img=img, file_size=len(file_content))
+                # Extract metadata using the already-open image (no extra opens)
+                image_info = image_processing.get_image_info(img=img, file_size=len(file_content))
 
-            # Generate thumbnail from the open image
-            rgb_img = img
-            if img.mode in ("RGBA", "P"):
-                rgb_img = img.convert("RGB")  # type: ignore[assignment]
-            thumbnail_bytes = _thumbnail_from_image(rgb_img, max_size=512)
+                # Generate thumbnail from the open image
+                rgb_img = img
+                if img.mode in ("RGBA", "P"):
+                    rgb_img = img.convert("RGB")  # type: ignore[assignment]
 
-            # Generate WebP from the open image
-            web_bytes = _webp_from_image(rgb_img, max_dimension=4096)
+                try:
+                    thumbnail_bytes = _thumbnail_from_image(rgb_img, max_size=512)
+                    web_bytes = _webp_from_image(rgb_img, max_dimension=4096)
+                finally:
+                    if rgb_img is not img:
+                        rgb_img.close()
 
         # Release file_content early — the derived buffers are much smaller
         file_size = len(file_content)
@@ -184,28 +197,40 @@ async def upload_scene_image(
         raise StorageException(detail=f"Scene image upload failed: {str(e)}") from None
 
 
-def _thumbnail_from_image(img: Image.Image, max_size: int = 512) -> bytes:
+def _thumbnail_from_image(img: PILImage, max_size: int = 512) -> bytes:
     """Generate thumbnail bytes from an already-open Pillow Image."""
     import io as _io
+
+    from PIL import Image
+
     thumb = img.copy()
-    w, h = thumb.size
-    aspect_ratio = w / h
-    if w > h:
-        new_w = min(max_size, w)
-        new_h = int(new_w / aspect_ratio)
-    else:
-        new_h = min(max_size, h)
-        new_w = int(new_h * aspect_ratio)
-    thumb.thumbnail((new_w, new_h), Image.Resampling.LANCZOS)
-    buf = _io.BytesIO()
-    thumb.save(buf, format="WEBP", quality=image_processing.WEBP_QUALITY, optimize=True)
-    thumb.close()
-    return buf.getvalue()
+    try:
+        w, h = thumb.size
+        aspect_ratio = w / h
+        if w > h:
+            new_w = min(max_size, w)
+            new_h = int(new_w / aspect_ratio)
+        else:
+            new_h = min(max_size, h)
+            new_w = int(new_h * aspect_ratio)
+        thumb.thumbnail((new_w, new_h), Image.Resampling.LANCZOS)
+        buf = _io.BytesIO()
+        thumb.save(buf, format="WEBP", quality=image_processing.WEBP_QUALITY, optimize=True)
+        return buf.getvalue()
+    finally:
+        thumb.close()
 
 
-def _webp_from_image(img: Image.Image, max_dimension: int = 4096, quality: int = image_processing.WEBP_QUALITY) -> bytes:
+def _webp_from_image(
+    img: PILImage,
+    max_dimension: int = 4096,
+    quality: int = image_processing.WEBP_QUALITY,
+) -> bytes:
     """Generate WebP bytes from an already-open Pillow Image."""
     import io as _io
+
+    from PIL import Image
+
     web_img = img.copy()
     w, h = web_img.size
     if w > max_dimension or h > max_dimension:
@@ -217,10 +242,13 @@ def _webp_from_image(img: Image.Image, max_dimension: int = 4096, quality: int =
             new_h = max_dimension
             new_w = int(new_h * ar)
         web_img = web_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-    buf = _io.BytesIO()
-    web_img.save(buf, format="WEBP", quality=quality, optimize=True)
-    web_img.close()
-    return buf.getvalue()
+    try:
+        buf = _io.BytesIO()
+        web_img.save(buf, format="WEBP", quality=quality, optimize=True)
+        return buf.getvalue()
+    finally:
+        if web_img is not img:
+            web_img.close()
 
 
 async def process_existing_scene_image(

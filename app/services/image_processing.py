@@ -2,13 +2,15 @@
 Image Processing Service for 360 Tour panoramas.
 Uses Pillow for thumbnail generation, format conversion, and EXIF extraction.
 """
-import io
-from typing import Any
+from __future__ import annotations
 
-from PIL import Image
-from PIL.ExifTags import GPSTAGS, TAGS
+import io
+from typing import TYPE_CHECKING, Any
 
 from app.core.logging import get_logger
+
+if TYPE_CHECKING:
+    from PIL.Image import Image as PILImage
 
 logger = get_logger(__name__)
 
@@ -42,33 +44,40 @@ def generate_thumbnail(
         Processed thumbnail as bytes
     """
     try:
+        from PIL import Image
+
         with Image.open(io.BytesIO(image_bytes)) as img:
+            output_img = img
             # Convert to RGB if necessary (for JPEG/WebP output)
             if img.mode in ("RGBA", "P"):
-                img = img.convert("RGB")  # type: ignore[assignment]
+                output_img = img.convert("RGB")
 
-            # Calculate thumbnail size maintaining aspect ratio
-            # For 360 panoramas, we want to preserve the 2:1 ratio
-            width, height = img.size
-            aspect_ratio = width / height
+            try:
+                # Calculate thumbnail size maintaining aspect ratio
+                # For 360 panoramas, we want to preserve the 2:1 ratio
+                width, height = output_img.size
+                aspect_ratio = width / height
 
-            if width > height:
-                new_width = min(max_size, width)
-                new_height = int(new_width / aspect_ratio)
-            else:
-                new_height = min(max_size, height)
-                new_width = int(new_height * aspect_ratio)
+                if width > height:
+                    new_width = min(max_size, width)
+                    new_height = int(new_width / aspect_ratio)
+                else:
+                    new_height = min(max_size, height)
+                    new_width = int(new_height * aspect_ratio)
 
-            # Use high-quality resampling
-            img.thumbnail((new_width, new_height), Image.Resampling.LANCZOS)
+                # Use high-quality resampling
+                output_img.thumbnail((new_width, new_height), Image.Resampling.LANCZOS)
 
-            # Save to bytes
-            output = io.BytesIO()
-            quality = WEBP_QUALITY if format.upper() == "WEBP" else JPEG_QUALITY
-            img.save(output, format=format.upper(), quality=quality, optimize=True)
-            output.seek(0)
+                # Save to bytes
+                output = io.BytesIO()
+                quality = WEBP_QUALITY if format.upper() == "WEBP" else JPEG_QUALITY
+                output_img.save(output, format=format.upper(), quality=quality, optimize=True)
+                output.seek(0)
 
-            return output.getvalue()
+                return output.getvalue()
+            finally:
+                if output_img is not img:
+                    output_img.close()
 
     except Exception as e:
         logger.error("Thumbnail generation failed: %s", e, exc_info=True)
@@ -92,30 +101,43 @@ def convert_to_webp(
         WebP image as bytes
     """
     try:
+        from PIL import Image
+
         with Image.open(io.BytesIO(image_bytes)) as img:
+            rgb_img = img
             # Convert to RGB if necessary
             if img.mode in ("RGBA", "P"):
-                img = img.convert("RGB")  # type: ignore[assignment]
+                rgb_img = img.convert("RGB")
 
-            # Resize if max_dimension is specified
-            if max_dimension:
-                width, height = img.size
-                if width > max_dimension or height > max_dimension:
-                    aspect_ratio = width / height
-                    if width > height:
-                        new_width = max_dimension
-                        new_height = int(max_dimension / aspect_ratio)
-                    else:
-                        new_height = max_dimension
-                        new_width = int(max_dimension * aspect_ratio)
-                    img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)  # type: ignore[assignment]
+            output_img = rgb_img
+            try:
+                # Resize if max_dimension is specified
+                if max_dimension:
+                    width, height = output_img.size
+                    if width > max_dimension or height > max_dimension:
+                        aspect_ratio = width / height
+                        if width > height:
+                            new_width = max_dimension
+                            new_height = int(max_dimension / aspect_ratio)
+                        else:
+                            new_height = max_dimension
+                            new_width = int(max_dimension * aspect_ratio)
+                        output_img = output_img.resize(
+                            (new_width, new_height),
+                            Image.Resampling.LANCZOS,
+                        )
 
-            # Save as WebP
-            output = io.BytesIO()
-            img.save(output, format="WEBP", quality=quality, optimize=True)
-            output.seek(0)
+                # Save as WebP
+                output = io.BytesIO()
+                output_img.save(output, format="WEBP", quality=quality, optimize=True)
+                output.seek(0)
 
-            return output.getvalue()
+                return output.getvalue()
+            finally:
+                if output_img is not rgb_img:
+                    output_img.close()
+                if rgb_img is not img:
+                    rgb_img.close()
 
     except Exception as e:
         logger.error("WebP conversion failed: %s", e, exc_info=True)
@@ -140,6 +162,9 @@ def extract_exif(image_bytes: bytes) -> dict[str, Any]:
     }
 
     try:
+        from PIL import Image
+        from PIL.ExifTags import TAGS
+
         with Image.open(io.BytesIO(image_bytes)) as img:
             raw_exif = img.getexif()
 
@@ -189,6 +214,8 @@ def extract_exif(image_bytes: bytes) -> dict[str, Any]:
 
 def _parse_gps_info(gps_info: dict) -> dict[str, Any]:
     """Parse GPS info from EXIF data into latitude/longitude."""
+    from PIL.ExifTags import GPSTAGS
+
     gps_data: dict[str, Any] = {}
 
     try:
@@ -245,6 +272,8 @@ def get_image_dimensions(image_bytes: bytes) -> tuple[int, int]:
         Tuple of (width, height)
     """
     try:
+        from PIL import Image
+
         with Image.open(io.BytesIO(image_bytes)) as img:
             return img.size
     except Exception as e:
@@ -287,7 +316,7 @@ def validate_360_panorama(image_bytes: bytes, tolerance: float = 0.1) -> bool:
 def get_image_info(
     image_bytes: bytes | None = None,
     *,
-    img: Image.Image | None = None,
+    img: PILImage | None = None,
     file_size: int = 0,
 ) -> dict[str, Any]:
     """
@@ -305,6 +334,9 @@ def get_image_info(
         Dictionary with dimensions, format, mode, and EXIF data
     """
     try:
+        from PIL import Image
+        from PIL.ExifTags import TAGS
+
         if image_bytes is None and img is None:
             raise ValueError("Either image_bytes or img must be provided")
 
@@ -376,48 +408,64 @@ async def process_scene_image(image_bytes: bytes) -> dict[str, Any]:
         Dictionary with 'thumbnail', 'web' (WebP optimized), and metadata
     """
     try:
+        from PIL import Image
+
         with Image.open(io.BytesIO(image_bytes)) as img:
             # Convert to RGB once if needed
             rgb_img = img
             if img.mode in ("RGBA", "P"):
                 rgb_img = img.convert("RGB")  # type: ignore[assignment]
 
-            # --- Thumbnail (512px max) ---
-            thumb_img = rgb_img.copy()
-            width, height = thumb_img.size
-            aspect_ratio = width / height
-            if width > height:
-                new_w = min(512, width)
-                new_h = int(new_w / aspect_ratio)
-            else:
-                new_h = min(512, height)
-                new_w = int(new_h * aspect_ratio)
-            thumb_img.thumbnail((new_w, new_h), Image.Resampling.LANCZOS)
-            thumb_buf = io.BytesIO()
-            thumb_img.save(thumb_buf, format="WEBP", quality=WEBP_QUALITY, optimize=True)
-            thumbnail = thumb_buf.getvalue()
-            thumb_img.close()
+            try:
+                # --- Thumbnail (512px max) ---
+                thumb_img = rgb_img.copy()
+                try:
+                    width, height = thumb_img.size
+                    aspect_ratio = width / height
+                    if width > height:
+                        new_w = min(512, width)
+                        new_h = int(new_w / aspect_ratio)
+                    else:
+                        new_h = min(512, height)
+                        new_w = int(new_h * aspect_ratio)
+                    thumb_img.thumbnail((new_w, new_h), Image.Resampling.LANCZOS)
+                    thumb_buf = io.BytesIO()
+                    thumb_img.save(
+                        thumb_buf,
+                        format="WEBP",
+                        quality=WEBP_QUALITY,
+                        optimize=True,
+                    )
+                    thumbnail = thumb_buf.getvalue()
+                finally:
+                    thumb_img.close()
 
-            # --- Web-optimized (4096px max) ---
-            web_img = rgb_img.copy()
-            max_dim = 4096
-            w, h = web_img.size
-            if w > max_dim or h > max_dim:
-                ar = w / h
-                if w > h:
-                    new_w = max_dim
-                    new_h = int(max_dim / ar)
-                else:
-                    new_h = max_dim
-                    new_w = int(new_h * ar)
-                web_img = web_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-            web_buf = io.BytesIO()
-            web_img.save(web_buf, format="WEBP", quality=WEBP_QUALITY, optimize=True)
-            web_optimized = web_buf.getvalue()
-            web_img.close()
+                # --- Web-optimized (4096px max) ---
+                web_img = rgb_img.copy()
+                max_dim = 4096
+                w, h = web_img.size
+                if w > max_dim or h > max_dim:
+                    ar = w / h
+                    if w > h:
+                        new_w = max_dim
+                        new_h = int(max_dim / ar)
+                    else:
+                        new_h = max_dim
+                        new_w = int(new_h * ar)
+                    web_img = web_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                try:
+                    web_buf = io.BytesIO()
+                    web_img.save(web_buf, format="WEBP", quality=WEBP_QUALITY, optimize=True)
+                    web_optimized = web_buf.getvalue()
+                finally:
+                    if web_img is not rgb_img:
+                        web_img.close()
 
-            # --- Metadata (reuse already-open image) ---
-            info = get_image_info(img=img, file_size=len(image_bytes))
+                # --- Metadata (reuse already-open image) ---
+                info = get_image_info(img=img, file_size=len(image_bytes))
+            finally:
+                if rgb_img is not img:
+                    rgb_img.close()
 
         return {
             "thumbnail": thumbnail,

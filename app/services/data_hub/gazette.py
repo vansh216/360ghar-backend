@@ -1,4 +1,6 @@
 """Haryana Gazette scraper — official gazette site + PDF extraction."""
+from __future__ import annotations
+
 import asyncio
 import logging
 import re
@@ -54,7 +56,7 @@ class GazetteScraper(BaseScraper):
         return results
 
     def _parse_gazette_listing(self, html: str) -> list[dict]:
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         items = []
         for row in soup.select("table tr"):
             cells = [td.get_text(strip=True) for td in row.find_all("td")]

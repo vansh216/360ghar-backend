@@ -5,6 +5,8 @@ Create, read, update, delete, reorder scenes, and schedule
 background image processing.
 """
 
+from __future__ import annotations
+
 import asyncio
 from uuid import uuid4
 
@@ -23,6 +25,7 @@ from app.schemas.tour import SceneCreate, SceneUpdate
 from app.services.tour.helpers import (
     _ensure_scene_ownership,
     _ensure_tour_ownership,
+    _register_scene_processing_task,
     _scene_processing_tasks,
 )
 from app.services.tour.tours import get_tour
@@ -312,5 +315,5 @@ def schedule_scene_processing(
             user_id=user_id,
         )
     )
-    _scene_processing_tasks[scene_id] = task
+    _register_scene_processing_task(scene_id, task)
     logger.info("Scheduled processing for scene %s", scene_id)

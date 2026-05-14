@@ -5,7 +5,6 @@ and entire tours, including navigation and information hotspot generation.
 """
 from __future__ import annotations
 
-import asyncio
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -23,6 +22,7 @@ from .helpers import (
     _download_image_as_base64,
     _get_ai_provider_safe,
     _run_with_semaphore,
+    _track_background_task,
 )
 from .jobs import create_ai_job, update_job_status
 
@@ -49,7 +49,7 @@ async def suggest_scene_hotspots(
     job = await create_ai_job(db, user_id, "suggest_hotspots", scene_id=scene_id)
 
     # Run suggestion in background - pass only IDs and required data
-    asyncio.create_task(_run_with_semaphore(_run_hotspot_suggestions(job.id, scene_id, scene.tour_id)))
+    _track_background_task(_run_with_semaphore(_run_hotspot_suggestions(job.id, scene_id, scene.tour_id)))
 
     return job
 
@@ -74,7 +74,7 @@ async def suggest_tour_hotspots(
     job = await create_ai_job(db, user_id, "suggest_tour_hotspots", tour_id=tour_id)
 
     # Run suggestion in background - pass only tour_id
-    asyncio.create_task(_run_with_semaphore(_run_tour_hotspot_suggestions(job.id, tour_id)))
+    _track_background_task(_run_with_semaphore(_run_tour_hotspot_suggestions(job.id, tour_id)))
 
     return job
 
@@ -112,6 +112,7 @@ async def _run_hotspot_suggestions(job_id: str, scene_id: str, tour_id: str):
             # Download and encode image
             image_base64, mime_type = await _download_image_as_base64(scene.image_url)
             vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
+            del image_base64
 
             await update_job_status(db, job_id, "processing", 30)
 
@@ -132,6 +133,7 @@ async def _run_hotspot_suggestions(job_id: str, scene_id: str, tour_id: str):
             await update_job_status(db, job_id, "processing", 60)
 
             result = await _complete_json_with_retry(provider, messages, vision_input)
+            del vision_input
 
             # Process hotspots and add IDs
             hotspots = result.get("hotspots", [])
@@ -185,6 +187,7 @@ async def _run_tour_hotspot_suggestions(job_id: str, tour_id: str):
                     # Download and encode image
                     image_base64, mime_type = await _download_image_as_base64(scene.image_url)
                     vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
+                    del image_base64
 
                     # Build scene context
                     other_scenes = [s for s in scenes if s.id != scene.id]
@@ -201,6 +204,7 @@ async def _run_tour_hotspot_suggestions(job_id: str, tour_id: str):
                     ]
 
                     result = await _complete_json_with_retry(provider, messages, vision_input)
+                    del vision_input
 
                     hotspots = result.get("hotspots", [])
                     for hotspot in hotspots:

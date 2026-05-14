@@ -9,6 +9,24 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+_sms_client: httpx.AsyncClient | None = None
+
+
+def _get_sms_client() -> httpx.AsyncClient:
+    """Return a reusable SMS HTTP client."""
+    global _sms_client
+    if _sms_client is None or _sms_client.is_closed:
+        _sms_client = httpx.AsyncClient(timeout=10)
+    return _sms_client
+
+
+async def close_sms_client() -> None:
+    """Close the reusable SMS HTTP client."""
+    global _sms_client
+    if _sms_client is not None and not _sms_client.is_closed:
+        await _sms_client.aclose()
+    _sms_client = None
+
 
 async def send_sms(
     *,
@@ -45,23 +63,22 @@ async def send_sms(
     headers = {"Authorization": f"Bearer {api_key}"}
 
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(api_url, json=payload, headers=headers)
-            if resp.status_code // 100 == 2:
-                return True
-            logger.error(
-                "SMS send failed",
-                extra={
-                    "phone": phone_number,
-                    "status": resp.status_code,
-                    "body": resp.text,
-                },
-            )
-            return False
+        client = _get_sms_client()
+        resp = await client.post(api_url, json=payload, headers=headers)
+        if resp.status_code // 100 == 2:
+            return True
+        logger.error(
+            "SMS send failed",
+            extra={
+                "phone": phone_number,
+                "status": resp.status_code,
+                "body": resp.text,
+            },
+        )
+        return False
     except Exception as e:  # pragma: no cover - provider/network dependent
         logger.error(
             "SMS send exception",
             extra={"phone": phone_number, "error": str(e)},
         )
         return False
-

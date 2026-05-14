@@ -5,6 +5,8 @@
 
 Each bank has a different URL structure for their auction page.
 Graceful failure if a bank site restructures."""
+from __future__ import annotations
+
 import asyncio
 import logging
 import re
@@ -77,7 +79,7 @@ class BankSpecificAuctionScraper(BaseScraper):
     def _parse_bank_page(self, html: str, bank_cfg: dict, source_url: str) -> list[dict]:
         """Best-effort parse of bank-specific auction pages.
         Each bank structures their page differently, so we try multiple patterns."""
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         records = []
 
         # --- Strategy 1: Table-based (most common for bank auction pages) ---

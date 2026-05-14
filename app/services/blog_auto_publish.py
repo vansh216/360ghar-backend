@@ -9,10 +9,6 @@ from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent, NativeOutput
-from pydantic_ai.messages import ModelResponse
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.openai import OpenAIProvider
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -92,6 +88,43 @@ Rules:
 - Return valid structured data only.
 """.strip()
 
+_PerplexitySonarChatModel: type[Any] | None = None
+
+
+def _get_perplexity_model_class() -> type[Any]:
+    """Build the Perplexity model subclass only when auto-publish runs."""
+    global _PerplexitySonarChatModel
+    if _PerplexitySonarChatModel is not None:
+        return _PerplexitySonarChatModel
+
+    from pydantic_ai.models.openai import OpenAIChatModel
+
+    class PerplexitySonarChatModel(OpenAIChatModel):
+        """Preserve Perplexity-specific metadata on the model response."""
+
+        def _process_provider_details(self, response: Any) -> dict[str, Any] | None:
+            provider_details = super()._process_provider_details(response) or {}
+            raw_response = response.to_dict() if hasattr(response, "to_dict") else {}
+
+            citations = raw_response.get("citations")
+            search_results = raw_response.get("search_results")
+
+            if not citations and getattr(response, "model_extra", None):
+                citations = response.model_extra.get("citations")
+            if not search_results and getattr(response, "model_extra", None):
+                search_results = response.model_extra.get("search_results")
+
+            if citations:
+                provider_details["citations"] = [
+                    str(item).strip() for item in citations if str(item).strip()
+                ]
+            if search_results:
+                provider_details["search_results"] = search_results
+            return provider_details or None
+
+    _PerplexitySonarChatModel = PerplexitySonarChatModel
+    return _PerplexitySonarChatModel
+
 
 class DiscoveredNewsItem(BaseModel):
     title: str = Field(..., min_length=8)
@@ -131,34 +164,9 @@ class RecentPublishedPost(BaseModel):
     source_urls: list[str] = Field(default_factory=list)
 
 
-class PerplexitySonarChatModel(OpenAIChatModel):
-    """Preserve Perplexity-specific metadata on the model response."""
-
-    def _process_provider_details(self, response: Any) -> dict[str, Any] | None:
-        provider_details = super()._process_provider_details(response) or {}
-        raw_response = response.to_dict() if hasattr(response, "to_dict") else {}
-
-        citations = raw_response.get("citations")
-        search_results = raw_response.get("search_results")
-
-        if not citations and getattr(response, "model_extra", None):
-            citations = response.model_extra.get("citations")
-        if not search_results and getattr(response, "model_extra", None):
-            search_results = response.model_extra.get("search_results")
-
-        if citations:
-            provider_details["citations"] = [str(item).strip() for item in citations if str(item).strip()]
-        if search_results:
-            provider_details["search_results"] = search_results
-        return provider_details or None
-
-
 class DailyPerplexityBlogPublisher:
     def __init__(self) -> None:
-        self._provider = OpenAIProvider(
-            api_key=settings.PERPLEXITY_API_KEY,
-            base_url="https://api.perplexity.ai",
-        )
+        self._provider: Any | None = None
 
     async def publish_daily_posts(self, db: AsyncSession | None = None) -> dict[str, Any]:
         if not settings.PERPLEXITY_API_KEY:
@@ -284,6 +292,8 @@ class DailyPerplexityBlogPublisher:
         today_label: str,
         max_items: int,
     ) -> list[DiscoveredNewsItem]:
+        from pydantic_ai import Agent, NativeOutput
+
         agent = Agent(
             self._build_model(),
             output_type=NativeOutput(DiscoveredNewsBatch),
@@ -323,6 +333,8 @@ class DailyPerplexityBlogPublisher:
         item: DiscoveredNewsItem,
         today_label: str,
     ) -> GeneratedBlogDraft:
+        from pydantic_ai import Agent, NativeOutput
+
         agent = Agent(
             self._build_model(),
             output_type=NativeOutput(GeneratedBlogDraft),
@@ -348,11 +360,22 @@ class DailyPerplexityBlogPublisher:
         draft.citations = citations
         return draft
 
-    def _build_model(self) -> PerplexitySonarChatModel:
-        return PerplexitySonarChatModel(
+    def _build_model(self) -> Any:
+        model_class = _get_perplexity_model_class()
+        return model_class(
             settings.AUTO_BLOG_MODEL,
-            provider=self._provider,
+            provider=self._get_provider(),
         )
+
+    def _get_provider(self) -> Any:
+        if self._provider is None:
+            from pydantic_ai.providers.openai import OpenAIProvider
+
+            self._provider = OpenAIProvider(
+                api_key=settings.PERPLEXITY_API_KEY,
+                base_url="https://api.perplexity.ai",
+            )
+        return self._provider
 
     def _build_discovery_prompt(
         self,
@@ -534,6 +557,8 @@ class DailyPerplexityBlogPublisher:
         return f"{content_html.rstrip()}{sources_html}"
 
     def _result_citations(self, result: Any) -> list[str]:
+        from pydantic_ai.messages import ModelResponse
+
         for message in reversed(result.all_messages()):
             if isinstance(message, ModelResponse):
                 provider_details = message.provider_details or {}

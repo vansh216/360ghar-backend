@@ -5,6 +5,10 @@ Contains ownership checks, HTML sanitization, URL validation,
 content normalization, and other utilities used across sub-modules.
 """
 
+from __future__ import annotations
+
+import asyncio
+from collections import OrderedDict
 from urllib.parse import parse_qs, urlparse
 
 import bleach  # type: ignore[import-untyped]
@@ -279,4 +283,15 @@ def _normalize_hotspot_content(
 # Background task registry for scene processing
 # ---------------------------------------------------------------------------
 
-_scene_processing_tasks: dict = {}
+MAX_SCENE_PROCESSING_TASKS = 500
+_scene_processing_tasks: OrderedDict[str, asyncio.Task] = OrderedDict()
+
+
+def _register_scene_processing_task(scene_id: str, task: asyncio.Task) -> None:
+    """Register a scene-processing task with oldest-entry eviction."""
+    _scene_processing_tasks.pop(scene_id, None)
+    while len(_scene_processing_tasks) >= MAX_SCENE_PROCESSING_TASKS:
+        _, old_task = _scene_processing_tasks.popitem(last=False)
+        if not old_task.done():
+            old_task.cancel()
+    _scene_processing_tasks[scene_id] = task

@@ -1,4 +1,6 @@
 """Jamabandi cache service — user-initiated lookups with CAPTCHA proxy."""
+from __future__ import annotations
+
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -111,7 +113,7 @@ class JamabandiScraper(BaseScraper):
     ) -> dict:
         """Parse ownership details from Jamabandi nakal HTML."""
         from bs4 import BeautifulSoup
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         owner_names = []
         area_kanal = None
         area_marla = None

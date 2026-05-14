@@ -1,4 +1,6 @@
 """Zoning data scraper — TCP Haryana tables + supports CSV admin import."""
+from __future__ import annotations
+
 import asyncio
 import logging
 from typing import Any
@@ -41,7 +43,7 @@ class ZoningScraper(BaseScraper):
 
     def _parse_tcp_html(self, html: str) -> list[dict]:
         """Parse TCP colony approval table."""
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         records = []
         for table in soup.find_all("table"):
             headers = [th.get_text(strip=True).lower() for th in table.find_all("th")]
@@ -78,7 +80,7 @@ class ZoningScraper(BaseScraper):
 
     def _parse_zoning_html(self, html: str) -> list[dict]:
         """Parse master plan zoning data from GMDA."""
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         records = []
         for table in soup.find_all("table"):
             headers = [th.get_text(strip=True).lower() for th in table.find_all("th")]

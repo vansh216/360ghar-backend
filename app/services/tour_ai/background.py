@@ -4,7 +4,8 @@ Background task runners and apply-suggestion functions for tour AI operations.
 Contains tour generation, tour optimization background runners,
 and functions to apply AI-generated suggestions to scenes/hotspots.
 """
-import asyncio
+from __future__ import annotations
+
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +25,7 @@ from .helpers import (
     _ensure_navigation_hotspots,
     _get_ai_provider_safe,
     _run_with_semaphore,
+    _track_background_task,
 )
 from .jobs import create_ai_job, get_ai_job, update_job_status
 
@@ -206,7 +208,7 @@ async def generate_tour(
     await db.refresh(tour)
 
     job = await create_ai_job(db, user_id, "generate_tour", tour_id=tour.id)
-    asyncio.create_task(
+    _track_background_task(
         _run_with_semaphore(_run_tour_generation(
             job.id,
             tour.id,
@@ -257,6 +259,7 @@ async def _run_tour_generation(
                 if generate_titles or generate_descriptions:
                     image_base64, mime_type = await _download_image_as_base64(scene.image_url)
                     vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
+                    del image_base64
 
                     system_prompt = f"""You are a virtual tour creator.
 Generate a concise scene title and description in {language} for the provided panorama.
@@ -273,6 +276,7 @@ Respond in JSON with:
                     ]
 
                     result = await _complete_json_with_retry(provider, messages, vision_input)
+                    del vision_input
                     generated.append({"scene_id": scene.id, **result})
 
                     if apply_to_scenes:
@@ -333,7 +337,7 @@ async def optimize_tour(
 
     job = await create_ai_job(db, user_id, "optimize_tour", tour_id=tour_id)
 
-    asyncio.create_task(
+    _track_background_task(
         _run_with_semaphore(_run_tour_optimization(
             job.id,
             tour.id,
@@ -375,6 +379,7 @@ async def _run_tour_optimization(
 
                 image_base64, mime_type = await _download_image_as_base64(scene.image_url)
                 vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
+                del image_base64
 
                 system_prompt = f"""You are a virtual tour optimization assistant.
 Analyze this panorama and suggest improvements. Respond in JSON:
@@ -393,6 +398,7 @@ Analyze this panorama and suggest improvements. Respond in JSON:
                 ]
 
                 result = await _complete_json_with_retry(provider, messages, vision_input)
+                del vision_input
                 suggestions.append(result)
 
                 if update_titles and result.get("suggested_title"):

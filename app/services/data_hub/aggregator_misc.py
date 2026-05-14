@@ -5,6 +5,8 @@
 4. AuctionBazaar.com (auctionbazaar.com)
 
 Each sub-source is scraped independently with graceful failure."""
+from __future__ import annotations
+
 import asyncio
 import logging
 import re
@@ -72,7 +74,7 @@ class AggregatorMiscAuctionScraper(BaseScraper):
     def _parse_aggregator_html(self, html: str, source_cfg: dict) -> list[dict]:
         """Best-effort parse of aggregator auction listing pages.
         These sites vary in layout; we try table, card, and list patterns."""
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         records = []
 
         # --- Strategy 1: Table-based listings ---

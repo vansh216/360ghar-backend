@@ -4,12 +4,22 @@ AI Image Generation Service.
 Wraps Gemini 3 Pro Image Preview for text-to-image and image-to-image generation.
 """
 
-from app.services.ai.image_gen.service import (
+from __future__ import annotations
+
+from app.services.ai.image_gen.schemas import (
     ImageGenMode,
     ImageGenRequest,
     ImageGenResponse,
-    generate_image,
 )
+
+
+def __getattr__(name: str):
+    if name == "generate_image":
+        from app.services.ai.image_gen.service import generate_image
+
+        return generate_image
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "generate_image",

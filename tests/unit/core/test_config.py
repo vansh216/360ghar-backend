@@ -74,9 +74,14 @@ class TestSettings:
 
             settings = config.Settings()
 
-            assert settings.CACHE_BACKEND == "memory"
+            assert settings.CACHE_BACKEND == "disk"
             assert settings.CACHE_DEFAULT_TTL == 300
             assert settings.CACHE_MEMORY_MAX_SIZE == 1000
+            assert settings.CACHE_MEMORY_MAX_ENTRY_BYTES == 1_000_000
+            assert settings.CACHE_DISK_DIR == "/tmp/ghar360_cache"
+            assert settings.CACHE_DISK_MAX_SIZE == 1000
+            assert settings.CACHE_DISK_MAX_ENTRY_BYTES == 1_000_000
+            assert settings.CACHE_REDIS_MAX_CONNECTIONS == 15
             assert settings.CACHE_KEY_PREFIX == "ghar360:"
 
     def test_cache_ttl_settings(self):

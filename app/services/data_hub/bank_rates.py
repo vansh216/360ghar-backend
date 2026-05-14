@@ -1,4 +1,6 @@
 """Bank rate scraper — RBI repo rate (HTML page) + major bank MCLR rates."""
+from __future__ import annotations
+
 import asyncio
 import logging
 import re
@@ -48,7 +50,7 @@ class BankRateScraper(BaseScraper):
 
     def _parse_rbi_repo_rate(self, html: str) -> dict | None:
         """Parse RBI repo rate from press release page."""
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         text = soup.get_text()
         match = re.search(
             r"repo rate[^\d]*(\d+\.?\d*)\s*(?:per cent|%)", text, re.IGNORECASE
@@ -66,7 +68,7 @@ class BankRateScraper(BaseScraper):
 
     def _parse_bank_mclr(self, html: str, bank_name: str, source_url: str) -> list[dict]:
         """Best-effort parse of bank MCLR table."""
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         rates = []
         text = soup.get_text()
         matches = re.findall(r"(\d+\.\d+)\s*%", text)

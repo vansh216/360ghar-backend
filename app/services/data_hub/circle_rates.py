@@ -1,4 +1,6 @@
 """Circle rates scraper — IGRS Haryana (Playwright, JS-rendered form)."""
+from __future__ import annotations
+
 import asyncio
 import logging
 from datetime import date
@@ -57,7 +59,7 @@ class CircleRateScraper(BaseScraper):
 
     def _parse_circle_rates_html(self, html: str) -> list[dict]:
         from bs4 import BeautifulSoup
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         records = []
         revision_year = date.today().year
         for table in soup.find_all("table"):

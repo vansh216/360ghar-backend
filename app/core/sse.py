@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+class SSESubscriberLimitError(RuntimeError):
+    """Raised when the process-level SSE subscriber cap is reached."""
 
 
 class SSEEventBus:
@@ -15,18 +20,33 @@ class SSEEventBus:
     """
 
     _FULL_THRESHOLD = 3
+    _QUEUE_MAX_SIZE = 32
+    _REAP_EVERY_EMITS = 10
+    _MAX_GLOBAL_SUBSCRIBERS = 500
+    _QUEUE_TTL_SECONDS = 30 * 60
 
     def __init__(self) -> None:
         self._queues: dict[int, list[asyncio.Queue[dict[str, Any]]]] = {}
         self._full_counts: dict[int, int] = {}
+        self._last_activity: dict[int, float] = {}
         self._lock = asyncio.Lock()
         self._emit_count = 0
 
     async def subscribe(self, user_id: int) -> asyncio.Queue[dict[str, Any]]:
-        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=256)
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=self._QUEUE_MAX_SIZE)
         async with self._lock:
+            if self._subscriber_count_locked() >= self._MAX_GLOBAL_SUBSCRIBERS:
+                raise SSESubscriberLimitError("SSE subscriber limit reached")
             self._queues.setdefault(user_id, []).append(queue)
+            self._last_activity[id(queue)] = time.monotonic()
         return queue
+
+    async def touch(self, queue: asyncio.Queue[dict[str, Any]]) -> None:
+        """Mark a queue as actively consumed by its SSE response task."""
+        async with self._lock:
+            queue_id = id(queue)
+            if queue_id in self._last_activity:
+                self._last_activity[queue_id] = time.monotonic()
 
     async def unsubscribe(self, user_id: int, queue: asyncio.Queue[dict[str, Any]]) -> None:
         async with self._lock:
@@ -38,6 +58,7 @@ class SSEEventBus:
             except ValueError:
                 pass
             self._full_counts.pop(id(queue), None)
+            self._last_activity.pop(id(queue), None)
             if not queues:
                 del self._queues[user_id]
 
@@ -68,7 +89,7 @@ class SSEEventBus:
                         logger.warning("SSE queue full for user %s, dropping event", user_id)
 
             self._emit_count += 1
-            if self._emit_count % 100 == 0:
+            if self._emit_count % self._REAP_EVERY_EMITS == 0:
                 should_reap = True
 
         if should_reap:
@@ -76,14 +97,21 @@ class SSEEventBus:
 
     async def _reap_dead_queues_async(self) -> None:
         """Reap queues that have been full for multiple consecutive cycles."""
+        now = time.monotonic()
         async with self._lock:
             stale_users: list[int] = []
             for uid, queues in list(self._queues.items()):
                 alive: list[asyncio.Queue[dict[str, Any]]] = []
                 for q in queues:
-                    if q.full():
-                        count = self._full_counts.get(id(q), 0) + 1
-                        self._full_counts[id(q)] = count
+                    queue_id = id(q)
+                    last_activity = self._last_activity.get(queue_id, now)
+                    if now - last_activity > self._QUEUE_TTL_SECONDS:
+                        logger.warning("SSE queue reaped for user %s after inactivity TTL", uid)
+                        self._full_counts.pop(queue_id, None)
+                        self._last_activity.pop(queue_id, None)
+                    elif q.full():
+                        count = self._full_counts.get(queue_id, 0) + 1
+                        self._full_counts[queue_id] = count
                         if count < self._FULL_THRESHOLD:
                             alive.append(q)
                         else:
@@ -92,9 +120,10 @@ class SSEEventBus:
                                 uid,
                                 count,
                             )
-                            self._full_counts.pop(id(q), None)
+                            self._full_counts.pop(queue_id, None)
+                            self._last_activity.pop(queue_id, None)
                     else:
-                        self._full_counts.pop(id(q), None)
+                        self._full_counts.pop(queue_id, None)
                         alive.append(q)
                 if alive:
                     self._queues[uid] = alive
@@ -102,6 +131,9 @@ class SSEEventBus:
                     stale_users.append(uid)
             for uid in stale_users:
                 self._queues.pop(uid, None)
+
+    def _subscriber_count_locked(self) -> int:
+        return sum(len(queues) for queues in self._queues.values())
 
 
 sse_bus = SSEEventBus()

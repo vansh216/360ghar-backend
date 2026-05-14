@@ -26,11 +26,10 @@ async def rent_roll_report(
     stmt = select(Property).where(Property.is_managed)
     if owner_ids is not None:
         stmt = stmt.where(Property.owner_id.in_(owner_ids))
-    res = await db.execute(stmt)
-    props = list(res.scalars().all())
 
     out: list[dict[str, Any]] = []
-    for p in props:
+    props = await db.stream_scalars(stmt)
+    async for p in props:
         lease_stmt = (
             select(Lease)
             .where(Lease.property_id == p.id, Lease.status == LeaseStatus.active)
@@ -153,4 +152,3 @@ async def maintenance_report(
         stmt = stmt.where(MaintenanceRequest.owner_id.in_(owner_ids))
     total = int((await db.execute(stmt)).scalar_one() or 0)
     return {"total_requests": total}
-

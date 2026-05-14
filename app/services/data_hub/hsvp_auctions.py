@@ -1,4 +1,6 @@
 """HSVP e-Auction Portal scraper — eauction.hsvphry.org.in."""
+from __future__ import annotations
+
 import asyncio
 import logging
 import re
@@ -98,7 +100,7 @@ class HsvpAuctionScraper(BaseScraper):
 
     def _parse_auction_html(self, html: str, source_cfg: dict) -> list[dict]:
         """Best-effort parse of HSVP auction table rows."""
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         records: list[dict] = []
 
         for table in soup.find_all("table"):

@@ -1,4 +1,6 @@
 """IBBI auction scraper — Insolvency and Bankruptcy Board of India liquidation auction notices."""
+from __future__ import annotations
+
 import asyncio
 import logging
 import re
@@ -42,7 +44,7 @@ class IBBIAuctionScraper(BaseScraper):
     def _parse_notices(self, html: str, source_url: str) -> list[dict]:
         """Parse IBBI notice listings. These are mainly metadata/links —
         the actual auction details live on BaankNet, so we capture what we can."""
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         records = []
 
         # IBBI pages typically use tables or card-based layouts for notices

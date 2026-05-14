@@ -1,5 +1,7 @@
 """DFC Delhi auction scraper — Delhi Development Authority (DSIDC/DFC) public auctions
 for industrial plots, sheds, and commercial land in Narela, Jhilmil, Nangloi etc."""
+from __future__ import annotations
+
 import asyncio
 import logging
 import re
@@ -43,7 +45,7 @@ class DFCDelhiAuctionScraper(BaseScraper):
 
     def _parse_auction_page(self, html: str, source_url: str) -> list[dict]:
         """Parse DFC Delhi public auction notices and tender listings."""
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         records = []
 
         # Parse auction/tender tables

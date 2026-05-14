@@ -1,5 +1,7 @@
 """HSVP Procure247 auction scraper — Haryana Shehri Vikas Pradhikaran e-auction
 via hsvp.procure247.com (JS-rendered site)."""
+from __future__ import annotations
+
 import asyncio
 import logging
 import re
@@ -70,7 +72,7 @@ class HSVPProcure247AuctionScraper(BaseScraper):
 
     def _parse_listing(self, html: str, source_url: str) -> list[dict]:
         """Parse HSVP auction/tender listing page (table or card layout)."""
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         records = []
 
         # Parse tables
@@ -162,7 +164,7 @@ class HSVPProcure247AuctionScraper(BaseScraper):
 
     def _parse_homepage(self, html: str) -> list[dict]:
         """Parse HSVP homepage for featured or latest auction listings."""
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         records = []
 
         # Look for any links/sections mentioning auctions or tenders

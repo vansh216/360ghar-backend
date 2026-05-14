@@ -12,7 +12,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.logging import get_logger
 from app.schemas.user import User as UserSchema
-from app.services.ai.image_gen import generate_image
 from app.services.ai.image_gen.schemas import (
     ImageGenMode,
     ImageGenRequest,
@@ -50,6 +49,8 @@ async def generate_design_image(
     - `error`: Error message (on failure)
     - `code`: Error code (on failure)
     """
+    from app.services.ai.image_gen.service import generate_image
+
     if request.mode == ImageGenMode.IMAGE_TO_IMAGE:
         if not request.image:
             raise HTTPException(

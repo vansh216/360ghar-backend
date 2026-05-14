@@ -197,6 +197,7 @@ class ImageAcquisition:
             "recovered_failed": 0,
             "acquired_pixabay": 0,
             "acquired_pexels": 0,
+            "acquired_unsplash": 0,
             "acquired_failed": 0,
             "uploaded": 0,
             "upload_failed": 0,
@@ -516,6 +517,106 @@ class ImageAcquisition:
 
         # No final commit needed — commits happen per post above
 
+    async def acquire_via_web(self, session: AsyncSession, limit: int = 0):
+        """Acquire cover images for posts without them via Pexels broad search.
+
+        This is a fallback for posts that the Pexels API didn't find images for.
+        Uses:
+        1. Pexels API with broader queries (searches first 2-3 words only)
+        2. Pexels API with ultra-broad single-word query
+        """
+        print("\n=== Phase 3: Acquire Images via Web Search (Pexels Broad) ===")
+
+        has_pexels = bool(self.pexels_key)
+        if has_pexels:
+            print(f"  Pexels API: available")
+
+        # Get posts without images
+        r = await session.execute(text("""
+            SELECT id, title, focus_keyword
+            FROM blog_posts
+            WHERE active = true
+              AND (cover_image_url IS NULL OR cover_image_url = '')
+            ORDER BY id
+        """))
+        posts = r.fetchall()
+
+        if limit > 0:
+            posts = posts[:limit]
+
+        print(f"Found {len(posts)} active posts without cover images")
+
+        # Get categories
+        post_categories = {}
+        r = await session.execute(text("""
+            SELECT bp.id, bc.name
+            FROM blog_posts bp
+            JOIN blog_post_categories bpc ON bp.id = bpc.post_id
+            JOIN blog_categories bc ON bpc.category_id = bc.id
+            WHERE bp.active = true AND (bp.cover_image_url IS NULL OR bp.cover_image_url = '')
+        """))
+        for pid, cat_name in r.fetchall():
+            post_categories.setdefault(pid, []).append(cat_name)
+
+        async with httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT, follow_redirects=True) as client:
+            for idx, (pid, title, fk) in enumerate(posts):
+                print(f"  [{idx+1}/{len(posts)}] Blog {pid}: {title[:60]}...")
+
+                cats = post_categories.get(pid, [])
+                search_query = _slugify_search(title, fk, cats)
+                print(f"    Search: \"{search_query}\"")
+
+                image_url = None
+                source = None
+
+                # Method 1: Pexels with broader query (first 2-3 words)
+                if not image_url and has_pexels:
+                    broad = " ".join(search_query.split()[:3])
+                    image_url = await self._search_pexels(client, broad)
+                    if image_url:
+                        source = "pexels-broad"
+                    await asyncio.sleep(PEXELS_DELAY)
+
+                # Method 2: Pexels with ultra-broad single-word query
+                if not image_url and has_pexels:
+                    ultra_broad = search_query.split()[0] if search_query.split() else "real estate"
+                    image_url = await self._search_pexels(client, ultra_broad)
+                    if image_url:
+                        source = "pexels-ultra"
+                    await asyncio.sleep(PEXELS_DELAY)
+
+                if not image_url:
+                    self.stats["acquired_failed"] += 1
+                    print(f"    -> NO IMAGE FOUND")
+                    continue
+
+                # Track image URL to prevent duplicates
+                self._used_image_urls.add(image_url)
+
+                # Download image
+                ext = self._ext_from_url(image_url) or ".jpg"
+                local_path = MEDIA_DIR / f"{pid}{ext}"
+
+                if await self._download_image(client, image_url, local_path):
+                    # Upload to Supabase Storage
+                    public_url = await self._upload_to_supabase(local_path, pid, ext)
+                    if public_url:
+                        await self._update_db(session, pid, public_url, public_url)
+                        if not self.dry_run:
+                            await session.commit()
+                        if source.startswith("pexels"):
+                            self.stats["acquired_pexels"] += 1
+                        else:
+                            self.stats["acquired_unsplash"] += 1
+                        print(f"    -> Acquired ({source}): {public_url[:80]}")
+                    else:
+                        self.stats["acquired_failed"] += 1
+                else:
+                    self.stats["acquired_failed"] += 1
+                    print(f"    -> Download failed for {source} image")
+
+                await asyncio.sleep(UPLOAD_DELAY)
+
     @staticmethod
     def _ext_from_url(url: str) -> str:
         """Extract file extension from URL."""
@@ -538,18 +639,19 @@ class ImageAcquisition:
         print(f"  Recovery failed:        {self.stats['recovered_failed']}")
         print(f"  Acquired (Pixabay):     {self.stats['acquired_pixabay']}")
         print(f"  Acquired (Pexels):      {self.stats['acquired_pexels']}")
+        print(f"  Acquired (Unsplash):    {self.stats['acquired_unsplash']}")
         print(f"  Acquisition failed:     {self.stats['acquired_failed']}")
         print(f"  Uploaded to Supabase:   {self.stats['uploaded']}")
         print(f"  Upload failed:          {self.stats['upload_failed']}")
         print(f"  Skipped (resume):       {self.stats['skipped']}")
         print(f"  DB rows updated:        {self.stats['db_updated']}")
-        total = self.stats["recovered"] + self.stats["acquired_pixabay"] + self.stats["acquired_pexels"]
+        total = self.stats["recovered"] + self.stats["acquired_pixabay"] + self.stats["acquired_pexels"] + self.stats["acquired_unsplash"]
         print(f"  TOTAL IMAGES PROCURED:  {total}")
 
 
 async def main():
     parser = argparse.ArgumentParser(description="Blog Cover Image Acquisition")
-    parser.add_argument("--phase", choices=["recover", "acquire", "all"], default="all",
+    parser.add_argument("--phase", choices=["recover", "acquire", "web", "all"], default="all",
                         help="Which phase to run (default: all)")
     parser.add_argument("--dry-run", action="store_true", help="No changes to DB or storage")
     parser.add_argument("--resume", action="store_true", help="Skip posts already having Supabase URLs")
@@ -565,6 +667,9 @@ async def main():
 
         if args.phase in ("acquire", "all"):
             await acq.acquire_images(session, limit=args.limit)
+
+        if args.phase in ("web",):
+            await acq.acquire_via_web(session, limit=args.limit)
 
     acq.print_summary()
 

@@ -1,4 +1,6 @@
 """YEIDA (Yamuna Expressway Industrial Development Authority) auction scraper."""
+from __future__ import annotations
+
 import asyncio
 import logging
 import re
@@ -92,7 +94,7 @@ class YeidaAuctionScraper(BaseScraper):
 
     def _parse_auction_html(self, html: str, source_cfg: dict) -> list[dict]:
         """Best-effort parse of YEIDA auction table rows."""
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         records = []
 
         for table in soup.find_all("table"):

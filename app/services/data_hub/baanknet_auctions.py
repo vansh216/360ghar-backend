@@ -1,4 +1,6 @@
 """BaankNet auction scraper — NPA and insolvency liquidation assets from baanknet.com."""
+from __future__ import annotations
+
 import asyncio
 import logging
 import re
@@ -54,7 +56,7 @@ class BaankNetAuctionScraper(BaseScraper):
 
     def _parse_listing(self, html: str, source_url: str) -> list[dict]:
         """Best-effort parse of BaankNet auction listing tables."""
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         records = []
 
         for table in soup.find_all("table"):

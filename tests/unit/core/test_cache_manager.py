@@ -2,12 +2,14 @@
 Tests for app.core.cache module.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from app.core.cache.backends.disk import DiskCacheBackend
 from app.core.cache.manager import (
-    CacheManager,
     CacheBackendType,
+    CacheManager,
     NullCacheBackend,
 )
 
@@ -86,6 +88,10 @@ class TestCacheBackendType:
         """Test redis backend type value."""
         assert CacheBackendType.REDIS.value == "redis"
 
+    def test_disk_backend_type(self):
+        """Test disk backend type value."""
+        assert CacheBackendType.DISK.value == "disk"
+
 
 class TestCacheManager:
     """Tests for CacheManager class."""
@@ -93,23 +99,46 @@ class TestCacheManager:
     def test_create_from_config_memory(self):
         """Test CacheManager creation with memory backend."""
         settings = MagicMock()
+        settings.SERVERLESS_ENABLED = False
         settings.CACHE_BACKEND = "memory"
         settings.CACHE_DEFAULT_TTL = 300
         settings.CACHE_MEMORY_MAX_SIZE = 1000
+        settings.CACHE_MEMORY_MAX_ENTRY_BYTES = 1_000_000
 
         manager = CacheManager.create_from_config(settings)
 
         assert manager is not None
         assert manager._primary is not None
 
+    def test_create_from_config_disk(self):
+        """Test CacheManager creation with disk backend."""
+        settings = MagicMock()
+        settings.SERVERLESS_ENABLED = False
+        settings.CACHE_BACKEND = "disk"
+        settings.CACHE_DEFAULT_TTL = 300
+        settings.CACHE_DISK_DIR = "/tmp/test-cache"
+        settings.CACHE_DISK_MAX_SIZE = 1000
+        settings.CACHE_DISK_MAX_ENTRY_BYTES = 1_000_000
+        settings.CACHE_MEMORY_MAX_SIZE = 250
+        settings.CACHE_MEMORY_MAX_ENTRY_BYTES = 1_000_000
+
+        manager = CacheManager.create_from_config(settings)
+
+        assert manager is not None
+        assert manager._primary is not None
+        assert manager._fallback is not None
+
     def test_create_from_config_redis(self):
         """Test CacheManager creation with redis backend."""
         settings = MagicMock()
+        settings.SERVERLESS_ENABLED = False
         settings.CACHE_BACKEND = "redis"
         settings.REDIS_URL = "redis://localhost:6379"
         settings.CACHE_DEFAULT_TTL = 300
+        settings.CACHE_REDIS_MAX_CONNECTIONS = 15
         settings.CACHE_KEY_PREFIX = "test:"
         settings.CACHE_MEMORY_MAX_SIZE = 500
+        settings.CACHE_MEMORY_MAX_ENTRY_BYTES = 1_000_000
 
         manager = CacheManager.create_from_config(settings)
 
@@ -120,9 +149,9 @@ class TestCacheManager:
     @pytest.mark.asyncio
     async def test_get_delegates_to_backend(self):
         """Test get delegates to active backend."""
-        mock_backend = AsyncMock()
+        mock_backend = MagicMock()
         mock_backend.is_available.return_value = True
-        mock_backend.get.return_value = "cached_value"
+        mock_backend.get = AsyncMock(return_value="cached_value")
 
         manager = CacheManager(backend=mock_backend)
 
@@ -134,9 +163,9 @@ class TestCacheManager:
     @pytest.mark.asyncio
     async def test_set_delegates_to_backend(self):
         """Test set delegates to active backend."""
-        mock_backend = AsyncMock()
+        mock_backend = MagicMock()
         mock_backend.is_available.return_value = True
-        mock_backend.set.return_value = True
+        mock_backend.set = AsyncMock(return_value=True)
 
         manager = CacheManager(backend=mock_backend)
 
@@ -148,9 +177,9 @@ class TestCacheManager:
     @pytest.mark.asyncio
     async def test_delete_delegates_to_backend(self):
         """Test delete delegates to active backend."""
-        mock_backend = AsyncMock()
+        mock_backend = MagicMock()
         mock_backend.is_available.return_value = True
-        mock_backend.delete.return_value = True
+        mock_backend.delete = AsyncMock(return_value=True)
 
         manager = CacheManager(backend=mock_backend)
 
@@ -162,9 +191,9 @@ class TestCacheManager:
     @pytest.mark.asyncio
     async def test_delete_pattern_delegates_to_backend(self):
         """Test delete_pattern delegates to active backend."""
-        mock_backend = AsyncMock()
+        mock_backend = MagicMock()
         mock_backend.is_available.return_value = True
-        mock_backend.delete_pattern.return_value = 5
+        mock_backend.delete_pattern = AsyncMock(return_value=5)
 
         manager = CacheManager(backend=mock_backend)
 
@@ -176,9 +205,9 @@ class TestCacheManager:
     @pytest.mark.asyncio
     async def test_exists_delegates_to_backend(self):
         """Test exists delegates to active backend."""
-        mock_backend = AsyncMock()
+        mock_backend = MagicMock()
         mock_backend.is_available.return_value = True
-        mock_backend.exists.return_value = True
+        mock_backend.exists = AsyncMock(return_value=True)
 
         manager = CacheManager(backend=mock_backend)
 
@@ -190,9 +219,9 @@ class TestCacheManager:
     @pytest.mark.asyncio
     async def test_clear_delegates_to_backend(self):
         """Test clear delegates to active backend."""
-        mock_backend = AsyncMock()
+        mock_backend = MagicMock()
         mock_backend.is_available.return_value = True
-        mock_backend.clear.return_value = True
+        mock_backend.clear = AsyncMock(return_value=True)
 
         manager = CacheManager(backend=mock_backend)
 
@@ -235,7 +264,7 @@ class TestCacheManager:
         """Test connect uses fallback on primary connection failure."""
         mock_primary = AsyncMock()
         mock_primary.connect.side_effect = Exception("Connection failed")
-        mock_primary.is_available.return_value = False
+        mock_primary.is_available = MagicMock(return_value=False)
 
         mock_fallback = AsyncMock()
         mock_fallback.connect.return_value = None
@@ -278,9 +307,9 @@ class TestCacheManager:
     @pytest.mark.asyncio
     async def test_invalidate_user_cache(self):
         """Test invalidate_user_cache clears user-related keys."""
-        mock_backend = AsyncMock()
+        mock_backend = MagicMock()
         mock_backend.is_available.return_value = True
-        mock_backend.delete_pattern.return_value = 3
+        mock_backend.delete_pattern = AsyncMock(return_value=3)
 
         manager = CacheManager(backend=mock_backend)
 
@@ -419,3 +448,32 @@ class TestPropertyCacheManager:
 
             assert result is True
             mock_manager.set.assert_called_once()
+
+
+class TestDiskCacheBackend:
+    """Tests for the disk-backed cache implementation."""
+
+    @pytest.mark.asyncio
+    async def test_round_trip_and_delete_pattern(self, tmp_path):
+        cache = DiskCacheBackend(tmp_path, max_size=10, default_ttl=300)
+        await cache.connect()
+        try:
+            assert await cache.set("properties:one", {"id": 1})
+            assert await cache.set("properties:two", {"id": 2})
+
+            assert await cache.get("properties:one") == {"id": 1}
+            assert await cache.delete_pattern("properties:*") == 2
+            assert await cache.exists("properties:one") is False
+            assert cache.stats.deletes == 2
+        finally:
+            await cache.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_rejects_oversized_entries(self, tmp_path):
+        cache = DiskCacheBackend(tmp_path, max_entry_bytes=8)
+        await cache.connect()
+        try:
+            assert await cache.set("large", "x" * 100) is False
+            assert await cache.get("large") is None
+        finally:
+            await cache.disconnect()

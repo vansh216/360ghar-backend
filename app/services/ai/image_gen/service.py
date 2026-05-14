@@ -33,7 +33,6 @@ from app.services.ai.image_gen.schemas import (
 logger = get_logger(__name__)
 
 _GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
-
 _DEFAULT_MODEL = "gemini-3-pro-image-preview"
 
 _MAX_RETRIES = 2
@@ -41,8 +40,7 @@ _RETRY_MIN_WAIT = 2
 _RETRY_MAX_WAIT = 10
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
-_MAX_IMAGE_SIZE = 6 * 1024 * 1024  # 6 MB base64
-_TIMEOUT = 180  # 3 minutes for image generation
+_TIMEOUT = 180
 
 
 def _is_retryable(exc: BaseException) -> bool:
@@ -71,9 +69,7 @@ async def generate_image(request: ImageGenRequest) -> ImageGenResponse:
             code="SERVICE_UNAVAILABLE",
         )
 
-    model = _DEFAULT_MODEL
-    url = f"{_GEMINI_API_BASE}/{model}:generateContent?key={api_key}"
-
+    url = f"{_GEMINI_API_BASE}/{_DEFAULT_MODEL}:generateContent?key={api_key}"
     payload = _build_payload(request)
 
     try:
@@ -108,12 +104,15 @@ def _build_payload(request: ImageGenRequest) -> dict[str, Any]:
 
     if request.mode == ImageGenMode.IMAGE_TO_IMAGE and request.image:
         mime = request.mimeType or "image/jpeg"
-        parts.insert(0, {
-            "inlineData": {
-                "mimeType": mime,
-                "data": request.image,
-            }
-        })
+        parts.insert(
+            0,
+            {
+                "inlineData": {
+                    "mimeType": mime,
+                    "data": request.image,
+                }
+            },
+        )
 
     contents = [{"role": "user", "parts": parts}]
 
@@ -123,23 +122,27 @@ def _build_payload(request: ImageGenRequest) -> dict[str, Any]:
 
     system_parts: list[dict[str, Any]] = []
     if request.mode == ImageGenMode.IMAGE_TO_IMAGE:
-        system_parts.append({
-            "text": (
-                "You are an expert interior/exterior designer. Transform the provided image "
-                "according to the user's prompt while preserving the room layout, architecture, "
-                "and structural elements. Only change colors, materials, textures, decor, and styling. "
-                "Generate a photorealistic, high-quality result."
-            )
-        })
+        system_parts.append(
+            {
+                "text": (
+                    "You are an expert interior/exterior designer. Transform the provided image "
+                    "according to the user's prompt while preserving the room layout, architecture, "
+                    "and structural elements. Only change colors, materials, textures, decor, and styling. "
+                    "Generate a photorealistic, high-quality result."
+                )
+            }
+        )
     else:
-        system_parts.append({
-            "text": (
-                "You are an expert interior/exterior design visualizer. Generate a photorealistic, "
-                "high-quality architectural visualization based on the user's description. "
-                "The output should look like a professional design render with realistic lighting, "
-                "textures, and materials."
-            )
-        })
+        system_parts.append(
+            {
+                "text": (
+                    "You are an expert interior/exterior design visualizer. Generate a photorealistic, "
+                    "high-quality architectural visualization based on the user's description. "
+                    "The output should look like a professional design render with realistic lighting, "
+                    "textures, and materials."
+                )
+            }
+        )
 
     payload: dict[str, Any] = {
         "contents": contents,

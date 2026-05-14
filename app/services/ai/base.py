@@ -97,8 +97,8 @@ class AIProvider(ABC):
                 timeout=self.config.timeout,
                 follow_redirects=True,
                 limits=httpx.Limits(
-                    max_connections=10,
-                    max_keepalive_connections=5,
+                    max_connections=5,
+                    max_keepalive_connections=2,
                     keepalive_expiry=60,
                 ),
             )

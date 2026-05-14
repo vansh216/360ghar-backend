@@ -4,6 +4,8 @@ Shared helpers for tour AI operations.
 Contains retry configuration, concurrency semaphore, AI provider wrappers,
 prompt templates, image download utilities, and navigation hotspot helpers.
 """
+from __future__ import annotations
+
 import asyncio
 import base64
 from typing import Any
@@ -33,6 +35,15 @@ MAX_WAIT_SECONDS = 30
 
 # Limit concurrent background AI tasks to avoid starving PgBouncer connections.
 _AI_TASK_SEMAPHORE = asyncio.Semaphore(5)
+_BACKGROUND_TASKS: set[asyncio.Task[Any]] = set()
+
+
+def _track_background_task(coro) -> asyncio.Task[Any]:
+    """Retain a background task reference until it completes."""
+    task = asyncio.create_task(coro)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    return task
 
 
 async def _run_with_semaphore(coro):

@@ -1,4 +1,6 @@
 """RERA project scraper — HRERA Gurugram (Playwright, JS-rendered tables)."""
+from __future__ import annotations
+
 import asyncio
 import logging
 from datetime import date
@@ -63,7 +65,7 @@ class ReraProjectScraper(BaseScraper):
 
     def _parse_rera_html(self, html: str) -> list[dict]:
         import re
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         records = []
         for table in soup.find_all("table"):
             headers = [th.get_text(strip=True).lower() for th in table.find_all("th")]

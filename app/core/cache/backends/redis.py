@@ -3,6 +3,8 @@ Redis cache backend for distributed caching.
 Refactored from existing CacheManager implementation.
 """
 
+from __future__ import annotations
+
 import json
 import pickle
 from typing import Any
@@ -29,7 +31,7 @@ class RedisCacheBackend:
         self,
         redis_url: str,
         default_ttl: int = 300,
-        max_connections: int = 50,
+        max_connections: int = 15,
         key_prefix: str = "cache:",
     ):
         """Initialize Redis cache backend.

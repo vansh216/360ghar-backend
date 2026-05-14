@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import asyncio
 import json
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
@@ -71,10 +73,16 @@ async def flatmates_sse(
     current_user: UserSchema = Depends(get_current_active_user),
 ):
     """SSE stream for flatmates real-time events."""
-    from app.core.sse import sse_bus
+    from app.core.sse import SSESubscriberLimitError, sse_bus
 
     user_id = current_user.id
-    queue = await sse_bus.subscribe(user_id)
+    try:
+        queue = await sse_bus.subscribe(user_id)
+    except SSESubscriberLimitError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Too many real-time subscribers. Please retry shortly.",
+        ) from exc
 
     async def event_stream():
         try:
@@ -82,10 +90,12 @@ async def flatmates_sse(
             while True:
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=30)
+                    await sse_bus.touch(queue)
                     event_type = event.get("type", "update")
                     payload = json.dumps(event, default=str)
                     yield f"event: {event_type}\ndata: {payload}\n\n"
                 except asyncio.TimeoutError:
+                    await sse_bus.touch(queue)
                     yield ": keepalive\n\n"
         except asyncio.CancelledError:
             pass

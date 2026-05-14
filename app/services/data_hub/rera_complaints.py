@@ -1,4 +1,6 @@
 """RERA complaints/orders scraper — HRERA (Playwright) with builder scoring."""
+from __future__ import annotations
+
 import asyncio
 import logging
 import re
@@ -75,7 +77,7 @@ class ReraComplaintScraper(BaseScraper):
         return results
 
     def _parse_complaints_html(self, html: str) -> list[dict]:
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         records = []
         for table in soup.find_all("table"):
             headers = [th.get_text(strip=True).lower() for th in table.find_all("th")]

@@ -49,6 +49,7 @@ def create_lifespan(testing: bool, user_mcp_app: Any, admin_mcp_app: Any) -> Lif
                 if not testing:
                     _shutdown_schedulers()
                     await _shutdown_ai_providers()
+                    await _shutdown_shared_http_clients()
                     _shutdown_notification_executor()
                     await _shutdown_supabase_clients()
                     await _shutdown_cache()
@@ -149,6 +150,18 @@ async def _shutdown_ai_providers() -> None:
         await close_all_providers()
     except Exception as e:
         logger.warning("Failed to close AI providers: %s", e)
+
+
+async def _shutdown_shared_http_clients() -> None:
+    """Close reusable service HTTP clients."""
+    try:
+        from app.services.notifications.fcm import close_fcm_client
+        from app.services.sms import close_sms_client
+
+        await close_fcm_client()
+        await close_sms_client()
+    except Exception as e:
+        logger.warning("Failed to close shared HTTP clients: %s", e)
 
 
 def _shutdown_notification_executor() -> None:

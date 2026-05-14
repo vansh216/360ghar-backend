@@ -1,4 +1,6 @@
 """Aggregator e-auction scraper — BankEAuctions.com and eAuctionsIndia.com."""
+from __future__ import annotations
+
 import asyncio
 import logging
 import re
@@ -101,7 +103,7 @@ class AggregatorEauctionsScraper(BaseScraper):
 
     def _parse_auction_html(self, html: str, source_cfg: dict) -> list[dict]:
         """Best-effort parse of aggregator site auction listings."""
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         records = []
 
         # Strategy 1: Standard HTML tables

@@ -5,7 +5,6 @@ description generation for individual scenes and entire tours.
 """
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from sqlalchemy import select
@@ -23,6 +22,7 @@ from .helpers import (
     _download_image_as_base64,
     _get_ai_provider_safe,
     _run_with_semaphore,
+    _track_background_task,
 )
 from .jobs import create_ai_job, update_job_status
 
@@ -50,7 +50,7 @@ async def analyze_scene(
     job = await create_ai_job(db, user_id, "analyze_scene", scene_id=scene_id)
 
     # Run analysis in background - pass only IDs, not ORM objects
-    asyncio.create_task(_run_with_semaphore(_run_scene_analysis(job.id, scene_id, scene.image_url)))
+    _track_background_task(_run_with_semaphore(_run_scene_analysis(job.id, scene_id, scene.image_url)))
 
     return job
 
@@ -75,7 +75,7 @@ async def analyze_tour_scenes(
     job = await create_ai_job(db, user_id, "analyze_scenes", tour_id=tour_id)
 
     # Run analysis in background - pass only tour_id
-    asyncio.create_task(_run_with_semaphore(_run_tour_analysis(job.id, tour_id)))
+    _track_background_task(_run_with_semaphore(_run_tour_analysis(job.id, tour_id)))
 
     return job
 
@@ -96,6 +96,7 @@ async def _run_scene_analysis(job_id: str, scene_id: str, image_url: str):
             # Download and encode image
             image_base64, mime_type = await _download_image_as_base64(image_url)
             vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
+            del image_base64
 
             await update_job_status(db, job_id, "processing", 30)
 
@@ -108,6 +109,7 @@ async def _run_scene_analysis(job_id: str, scene_id: str, image_url: str):
 
             # Use retry wrapper for AI call
             result = await _complete_json_with_retry(provider, messages, vision_input)
+            del vision_input
 
             # Add scene_id to result
             result["scene_id"] = scene_id
@@ -166,6 +168,7 @@ async def _run_tour_analysis(job_id: str, tour_id: str):
                     # Download and encode image
                     image_base64, mime_type = await _download_image_as_base64(scene.image_url)
                     vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
+                    del image_base64
 
                     messages = [
                         AIMessage(role=AIRole.SYSTEM, content=SCENE_ANALYSIS_PROMPT),
@@ -173,6 +176,7 @@ async def _run_tour_analysis(job_id: str, tour_id: str):
                     ]
 
                     result = await _complete_json_with_retry(provider, messages, vision_input)
+                    del vision_input
                     result["scene_id"] = scene.id
                     analysis_results.append(result)
 
@@ -217,7 +221,9 @@ async def generate_scene_description(
     job = await create_ai_job(db, user_id, "generate_description", scene_id=scene_id)
 
     # Run generation in background - pass only IDs and options
-    asyncio.create_task(_run_with_semaphore(_run_description_generation(job.id, scene_id, scene.image_url, options or {})))
+    _track_background_task(
+        _run_with_semaphore(_run_description_generation(job.id, scene_id, scene.image_url, options or {}))
+    )
 
     return job
 
@@ -243,7 +249,7 @@ async def generate_tour_descriptions(
     job = await create_ai_job(db, user_id, "generate_descriptions", tour_id=tour_id)
 
     # Run generation in background - pass only tour_id
-    asyncio.create_task(_run_with_semaphore(_run_tour_description_generation(job.id, tour_id, options or {})))
+    _track_background_task(_run_with_semaphore(_run_tour_description_generation(job.id, tour_id, options or {})))
 
     return job
 
@@ -263,6 +269,7 @@ async def _run_description_generation(job_id: str, scene_id: str, image_url: str
             # Download and encode image
             image_base64, mime_type = await _download_image_as_base64(image_url)
             vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
+            del image_base64
 
             await update_job_status(db, job_id, "processing", 30)
 
@@ -297,6 +304,7 @@ Respond in JSON format:
             await update_job_status(db, job_id, "processing", 60)
 
             result = await _complete_json_with_retry(provider, messages, vision_input)
+            del vision_input
 
             descriptions = {scene_id: result.get("description", "")}
 
@@ -343,6 +351,7 @@ async def _run_tour_description_generation(job_id: str, tour_id: str, options: d
                     # Download and encode image
                     image_base64, mime_type = await _download_image_as_base64(scene.image_url)
                     vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
+                    del image_base64
 
                     tone = options.get("tone", "professional")
                     length = options.get("length", "medium")
@@ -364,6 +373,7 @@ Respond in JSON format:
                     ]
 
                     result = await _complete_json_with_retry(provider, messages, vision_input)
+                    del vision_input
                     descriptions[scene.id] = result.get("description", "")
 
                 except Exception as e:

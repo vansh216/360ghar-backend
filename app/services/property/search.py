@@ -1,5 +1,7 @@
 """Unified property search with comprehensive filtering and geospatial optimization."""
 
+from __future__ import annotations
+
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -25,7 +27,7 @@ from app.core.cache import PropertyCacheManager
 from app.core.db_resilience import execute_with_transient_retry
 from app.core.logging import get_logger
 from app.models.enums import PG_FLATMATE_TYPES, BookingStatus
-from app.models.properties import Amenity, Property, PropertyAmenity
+from app.models.properties import Amenity, Property, PropertyAmenity, PropertyImage
 from app.schemas.property import Property as PropertySchema
 from app.schemas.property import SortBy, UnifiedPropertyFilter
 from app.vector.embedding_client import embed_query
@@ -160,8 +162,28 @@ async def get_unified_properties_optimized(
 
         # Base query with eager loading
         query = select(Property).options(
-            selectinload(Property.images),
-            selectinload(Property.property_amenities).selectinload(PropertyAmenity.amenity),
+            selectinload(Property.images).load_only(
+                PropertyImage.id,
+                PropertyImage.property_id,
+                PropertyImage.image_url,
+                PropertyImage.caption,
+                PropertyImage.image_category,
+                PropertyImage.display_order,
+                PropertyImage.is_main_image,
+            ),
+            selectinload(Property.property_amenities)
+            .load_only(
+                PropertyAmenity.id,
+                PropertyAmenity.property_id,
+                PropertyAmenity.amenity_id,
+            )
+            .selectinload(PropertyAmenity.amenity)
+            .load_only(
+                Amenity.id,
+                Amenity.title,
+                Amenity.icon,
+                Amenity.category,
+            ),
         )
         count_query = select(func.count(Property.id))
 

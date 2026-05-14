@@ -19,7 +19,7 @@ logger = get_logger(__name__)
 # Bounded thread pool for notification sync operations to avoid
 # exhausting the default asyncio executor under burst load.
 _NOTIFICATION_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
-    max_workers=8,
+    max_workers=3,
     thread_name_prefix="notif-",
 )
 

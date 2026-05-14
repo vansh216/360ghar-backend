@@ -102,8 +102,9 @@ async def get_dashboard_overview(
         revenue_prev_stmt = revenue_prev_stmt.where(RentPayment.owner_id.in_(owner_ids))
     monthly_revenue_previous = float((await db.execute(revenue_prev_stmt)).scalar_one() or 0.0)
 
-    # Outstanding rent: sum over charges (due+late - paid)
-    charges_stmt = (
+    # Outstanding rent: sum over charges (due+late - paid), computed in SQL to avoid
+    # loading every charge row into process memory.
+    charges_subquery = (
         select(
             RentCharge.id,
             (RentCharge.amount_due + func.coalesce(RentCharge.late_fee_assessed, 0.0)).label("due_total"),
@@ -113,11 +114,15 @@ async def get_dashboard_overview(
         .group_by(RentCharge.id)
     )
     if owner_ids is not None:
-        charges_stmt = charges_stmt.where(RentCharge.owner_id.in_(owner_ids))
-    charges_rows = (await db.execute(charges_stmt)).all()
-    outstanding_rent_total = 0.0
-    for _cid, due_total, paid_total in charges_rows:
-        outstanding_rent_total += max(float(due_total or 0.0) - float(paid_total or 0.0), 0.0)
+        charges_subquery = charges_subquery.where(RentCharge.owner_id.in_(owner_ids))
+    charges_sq = charges_subquery.subquery()
+    outstanding_stmt = select(
+        func.coalesce(
+            func.sum(func.greatest(charges_sq.c.due_total - charges_sq.c.paid_total, 0.0)),
+            0.0,
+        )
+    )
+    outstanding_rent_total = float((await db.execute(outstanding_stmt)).scalar_one() or 0.0)
 
     # Upcoming expenses: next 30 days
     upcoming_to = today + timedelta(days=30)
@@ -200,4 +205,3 @@ async def get_recent_activity(
 
     activities.sort(key=lambda x: x.get("at") or "", reverse=True)
     return activities[:limit]
-

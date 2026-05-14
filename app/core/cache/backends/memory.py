@@ -3,8 +3,11 @@ Thread-safe in-memory cache with LRU eviction and TTL support.
 Uses asyncio.Lock for async safety and OrderedDict for LRU ordering.
 """
 
+from __future__ import annotations
+
 import asyncio
 import fnmatch
+import pickle
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -49,20 +52,23 @@ class InMemoryCacheBackend:
         self,
         max_size: int = 1000,
         default_ttl: int = 300,
-        cleanup_interval: int = 86400,  # once daily
+        cleanup_interval: int = 300,
+        max_entry_bytes: int = 1_000_000,
     ):
         """Initialize in-memory cache.
 
         Args:
             max_size: Maximum number of entries before LRU eviction
             default_ttl: Default TTL in seconds for entries without explicit TTL
-            cleanup_interval: Interval in seconds for background cleanup of expired entries (default: daily)
+            cleanup_interval: Interval in seconds for background cleanup of expired entries
+            max_entry_bytes: Maximum serialized entry size accepted into memory
         """
         self._cache: OrderedDict[str, CacheEntry] = OrderedDict()
         self._lock = asyncio.Lock()
         self._max_size = max_size
         self._default_ttl = default_ttl
         self._cleanup_interval = cleanup_interval
+        self._max_entry_bytes = max_entry_bytes
         self._cleanup_task: asyncio.Task | None = None
         self._available = False
         self.stats = CacheStats()
@@ -114,6 +120,13 @@ class InMemoryCacheBackend:
     async def set(self, key: str, value: Any, ttl: int | None = None) -> bool:
         """Set value with optional TTL, evicting LRU if needed."""
         try:
+            if len(pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)) > self._max_entry_bytes:
+                logger.debug(
+                    "In-memory cache rejected oversized value",
+                    extra={"key": key, "limit": self._max_entry_bytes},
+                )
+                return False
+
             ttl = ttl if ttl is not None else self._default_ttl
             expires_at = time.time() + ttl if ttl > 0 else None
 
@@ -237,4 +250,5 @@ class InMemoryCacheBackend:
         stats = self.stats.to_dict()
         stats["size"] = self.get_size()
         stats["max_size"] = self._max_size
+        stats["max_entry_bytes"] = self._max_entry_bytes
         return stats
