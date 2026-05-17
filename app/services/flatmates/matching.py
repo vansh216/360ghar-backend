@@ -248,9 +248,13 @@ async def record_swipe(
                 for uid in (user_id, payload.target_user_id):
                     if uid is not None:
                         await sse_bus.emit(
-                        uid,
-                        {"type": "new_match", "match_id": match_id, "conversation_id": conversation_id},
-                    )
+                            uid,
+                            {
+                                "type": "new_match",
+                                "match_id": match_id,
+                                "conversation_id": conversation_id,
+                            },
+                        )
             except Exception:  # noqa: BLE001
                 pass  # best-effort
 
@@ -317,6 +321,12 @@ async def list_outgoing_likes(
 ) -> list[dict[str, Any]]:
     """Return profiles the current user has liked (outgoing likes)."""
     current_user = await db.get(User, user_id)
+    blocked_subq = select(UserBlock.blocked_user_id).where(
+        UserBlock.blocker_user_id == user_id,
+    )
+    blocker_subq = select(UserBlock.blocker_user_id).where(
+        UserBlock.blocked_user_id == user_id,
+    )
     stmt = (
         select(UserSwipe)
         .options(selectinload(UserSwipe.target_user), selectinload(UserSwipe.context_property))
@@ -325,6 +335,8 @@ async def list_outgoing_likes(
             UserSwipe.target_type == SwipeTargetType.user.value,
             UserSwipe.is_liked.is_(True),
             UserSwipe.target_user_id.is_not(None),
+            ~UserSwipe.target_user_id.in_(blocked_subq),
+            ~UserSwipe.target_user_id.in_(blocker_subq),
         )
         .order_by(UserSwipe.created_at.desc())
         .limit(limit)
@@ -332,19 +344,9 @@ async def list_outgoing_likes(
     )
     outgoing_swipes = list((await db.execute(stmt)).scalars().all())
 
-    blocked_ids_stmt = select(UserBlock.blocked_user_id).where(
-        UserBlock.blocker_user_id == user_id,
-    )
-    blocker_ids_stmt = select(UserBlock.blocker_user_id).where(
-        UserBlock.blocked_user_id == user_id,
-    )
-    blocked_ids = set((await db.execute(blocked_ids_stmt)).scalars().all())
-    blocker_ids = set((await db.execute(blocker_ids_stmt)).scalars().all())
-    excluded_ids = blocked_ids | blocker_ids
-
     items: list[dict[str, Any]] = []
     for swipe in outgoing_swipes:
-        if swipe.target_user is None or swipe.target_user_id in excluded_ids:
+        if swipe.target_user is None:
             continue
         items.append(
             {
