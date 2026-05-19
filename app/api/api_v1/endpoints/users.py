@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import (
@@ -6,6 +7,8 @@ from app.api.api_v1.dependencies.auth import (
     get_current_admin,
 )
 from app.core.database import get_db
+from app.core.exceptions import ConflictException
+from app.core.logging import get_logger
 from app.models.enums import UserRole
 from app.models.users import User
 from app.schemas.common import (
@@ -15,9 +18,10 @@ from app.schemas.common import (
     PaginatedResponse,
     PrivacySettings,
 )
-from app.schemas.user import LocationUpdate, UserPreferences, UserUpdate
+from app.schemas.user import LocationUpdate, PhoneUpdate, UserPreferences, UserUpdate
 from app.schemas.user import User as UserSchema
 from app.services.agent import assign_agent_to_user
+from app.services.storage import storage_service
 from app.services.user import (
     get_all_users,
     get_user_by_id,
@@ -27,6 +31,8 @@ from app.services.user import (
     update_user_preferences,
     update_user_privacy_settings,
 )
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -47,6 +53,93 @@ async def update_user_me(
     if not updated_user:
         raise HTTPException(status_code=404, detail="User not found")
     return UserSchema.model_validate(updated_user)
+
+
+@router.put("/me/phone", response_model=UserSchema)
+async def update_user_phone(
+    phone_update: PhoneUpdate,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update current user's phone number. Phone is saved but NOT verified."""
+    user_update = UserUpdate(phone=phone_update.phone, phone_verified=False)
+    try:
+        updated_user = await update_user(db, current_user.id, user_update, actor=current_user)
+    except IntegrityError:
+        await db.rollback()
+        raise ConflictException(detail="Phone number is already associated with another account") from None
+    if not updated_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return UserSchema.model_validate(updated_user)
+
+
+async def _upload_avatar(
+    file: UploadFile,
+    current_user: User,
+    db: AsyncSession,
+) -> UserSchema:
+    """Shared logic for avatar upload with WebP conversion.
+
+    Uses ``storage_service.upload_user_avatar()`` which routes through
+    ``upload_with_path(folder=AVATAR)`` — that already calls
+    ``image_processing.optimize_for_web(max_dimension=512, quality=85)``
+    to convert the image to WebP and downscale before uploading to storage.
+    """
+    result = await storage_service.upload_user_avatar(
+        file,
+        user_id=current_user.id,
+        db=db,
+    )
+
+    new_url = result["public_url"]
+    old_url = current_user.profile_image_url
+
+    # Update the user's profile_image_url
+    current_user.profile_image_url = new_url
+    await db.flush()
+    await db.refresh(current_user)
+
+    # Delete old avatar from storage if it existed and is different
+    if old_url and old_url != new_url:
+        try:
+            old_path = storage_service.extract_path_from_url(old_url)
+            if old_path:
+                storage_service.delete_file(old_path)
+        except Exception:
+            logger.warning("Failed to delete old avatar for user %s", current_user.id)
+
+    return UserSchema.model_validate(current_user)
+
+
+@router.post("/me/avatar", response_model=UserSchema)
+async def upload_user_avatar(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload a profile avatar image.
+
+    The image is automatically converted to WebP and downscaled to
+    512 px max dimension at quality 85 before storage, saving
+    bandwidth and storage costs.
+
+    Returns the updated user profile with the new ``profile_image_url``.
+    """
+    return await _upload_avatar(file, current_user, db)
+
+
+@router.post("/me/profile-image", response_model=UserSchema)
+async def upload_user_profile_image(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload a profile image (alias for /me/avatar).
+
+    The image is automatically converted to WebP and downscaled to
+    512 px max dimension at quality 85 before storage.
+    """
+    return await _upload_avatar(file, current_user, db)
 
 
 @router.get("/profile", response_model=UserSchema)

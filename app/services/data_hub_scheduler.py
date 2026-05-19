@@ -1,27 +1,28 @@
-"""Consolidated APScheduler for all data hub scrapers."""
+"""Consolidated APScheduler for all data hub scrapers.
+
+Registers daily, weekly, and quarterly cron jobs on the shared
+APScheduler instance from ``app.infrastructure.scheduler``.
+"""
+
 from __future__ import annotations
 
 import asyncio
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI
 
 from app.config import settings
 from app.core.logging import get_logger
+from app.infrastructure.scheduler import get_scheduler
 
 logger = get_logger(__name__)
 
-_scheduler: AsyncIOScheduler | None = None
-
 _TZ = "Asia/Kolkata"
 
-# Cron expressions (all at 2:00 AM IST)
 _DAILY_CRON = "0 2 * * *"
-_WEEKLY_CRON = "0 2 * * 1"        # Monday
-_QUARTERLY_CRON = "0 2 1 4,10 *"  # Apr 1 + Oct 1
+_WEEKLY_CRON = "0 2 * * 1"
+_QUARTERLY_CRON = "0 2 1 4,10 *"
 
-# Limit concurrent scrapers to avoid saturating PgBouncer connections.
 _SCRAPER_SEMAPHORE = asyncio.Semaphore(3)
 
 
@@ -115,20 +116,14 @@ async def _run_quarterly_scrapers() -> None:
 
 
 def start_data_hub_scheduler(app: FastAPI) -> None:
-    """Start the consolidated data hub scheduler if DATA_HUB_ENABLED."""
+    """Register data hub cron jobs if DATA_HUB_ENABLED."""
     del app
-
-    global _scheduler
 
     if not getattr(settings, "DATA_HUB_ENABLED", True):
         logger.info("Data hub scheduler disabled via DATA_HUB_ENABLED=False")
         return
 
-    if _scheduler and _scheduler.running:
-        logger.info("Data hub scheduler already running")
-        return
-
-    scheduler = AsyncIOScheduler(timezone=_TZ)
+    scheduler = get_scheduler()
 
     def _make_wrapper(coro_func, name: str):
         async def _wrapper():
@@ -162,11 +157,8 @@ def start_data_hub_scheduler(app: FastAPI) -> None:
         max_instances=1,
         coalesce=True,
     )
-
-    scheduler.start()
-    _scheduler = scheduler
     logger.info(
-        "Data hub scheduler started",
+        "Data hub jobs registered",
         extra={
             "daily_cron": _DAILY_CRON,
             "weekly_cron": _WEEKLY_CRON,
@@ -174,11 +166,3 @@ def start_data_hub_scheduler(app: FastAPI) -> None:
             "timezone": _TZ,
         },
     )
-
-
-def shutdown_scheduler() -> None:
-    """Shut down the data hub scheduler. Called during app lifespan teardown."""
-    global _scheduler
-    if _scheduler is not None:
-        _scheduler.shutdown(wait=False)
-        _scheduler = None

@@ -5,7 +5,18 @@ from typing import TYPE_CHECKING
 
 from geoalchemy2 import Geography
 from geoalchemy2.functions import ST_AsBinary, ST_GeogFromText
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    text,
+)
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -142,6 +153,7 @@ class Property(Base):
     current_tenant_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
     is_available: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_seed_data: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     available_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     calendar_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     view_count: Mapped[int] = mapped_column(Integer, default=0)

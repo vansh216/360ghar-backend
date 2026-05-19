@@ -7,7 +7,6 @@ import re
 from datetime import date
 from typing import Any
 
-import httpx
 from bs4 import BeautifulSoup
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,10 +33,12 @@ class GazetteScraper(BaseScraper):
                 # Try to fetch PDF text if URL available
                 if item.get("pdf_url"):
                     try:
-                        async with httpx.AsyncClient(timeout=30.0) as client:
-                            resp = await client.get(item["pdf_url"])
-                            resp.raise_for_status()
-                            item["pdf_text"] = extract_pdf_text(resp.content)
+                        from app.core.http import get_scraper_client
+
+                        client = get_scraper_client()
+                        resp = await client.get(item["pdf_url"], timeout=30.0)
+                        resp.raise_for_status()
+                        item["pdf_text"] = extract_pdf_text(resp.content)
                         await asyncio.sleep(1)
                     except Exception as e:
                         logger.warning(

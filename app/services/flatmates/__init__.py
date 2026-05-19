@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.services.flatmates.conversations import (
+    create_conversation_from_payload,
     get_conversation,
     get_conversation_summary,
     list_conversations,
@@ -39,6 +40,7 @@ from app.services.flatmates.moderation import (
 from app.services.flatmates.profiles import (
     get_bootstrap,
     get_flatmates_profile,
+    get_profile_by_id,
     list_catalogs,
     list_discoverable_profiles,
     list_flatmates_notifications,
@@ -51,6 +53,7 @@ from app.services.flatmates.visits import update_visit_status
 __all__ = [
     # profiles
     "get_flatmates_profile",
+    "get_profile_by_id",
     "list_discoverable_profiles",
     "update_flatmates_profile",
     "list_catalogs",
@@ -73,6 +76,7 @@ __all__ = [
     "send_message",
     "mark_conversation_read",
     "save_match_qna_answers",
+    "create_conversation_from_payload",
     # interactions
     "record_profile_view_event",
     "record_society_tag_vote",

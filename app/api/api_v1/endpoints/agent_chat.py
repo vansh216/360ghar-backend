@@ -177,9 +177,12 @@ async def agent_chat(
                 logger.error("SSE stream error: %s", exc, exc_info=True)
                 yield f"event: error\ndata: {_json.dumps({'code': 'STREAM_ERROR', 'message': str(exc)[:200]})}\n\n"
 
-        # After streaming completes, open a fresh session to persist results
-        from app.core.database import get_db as _get_db
-        async for fresh_db in _get_db():
+        # After streaming completes, open a fresh session to persist results.
+        # Use AsyncSessionLocal directly instead of the get_db() generator,
+        # which is a FastAPI dependency not designed for manual consumption
+        # outside of request scope (causes _ConnectionRecord.pool errors).
+        from app.core.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as fresh_db:
             try:
                 # Persist widget events
                 for we in widget_events:

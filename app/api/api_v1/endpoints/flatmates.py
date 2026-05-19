@@ -8,12 +8,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
-from app.api.api_v1.dependencies.auth import get_current_active_user
+from app.api.api_v1.dependencies.auth import get_current_active_user, get_current_user_sse
 from app.core.database import get_db
+from app.core.logging import get_logger
 from app.schemas.flatmates import (
     BlockCreate,
+    BlockedUserOut,
     BlockOut,
     CatalogEntry,
+    ConversationCreate,
     ConversationSummary,
     FlatmatesBootstrap,
     FlatmatesNotificationOut,
@@ -25,6 +28,7 @@ from app.schemas.flatmates import (
     IncomingLikeSummary,
     MatchSummary,
     MessageCreate,
+    MessageListResponse,
     MessageOut,
     ProfileViewEventCreate,
     ProfileViewEventOut,
@@ -33,17 +37,20 @@ from app.schemas.flatmates import (
     ReportOut,
     SocietyTagVoteCreate,
     SocietyTagVoteOut,
+    SwipeDeckResponse,
     SwipeRequest,
     SwipeResult,
 )
 from app.schemas.user import User as UserSchema
 from app.services.flatmates import (
     create_block,
+    create_conversation_from_payload,
     create_report,
     delete_block,
     get_bootstrap,
     get_conversation_summary,
     get_flatmates_profile,
+    get_profile_by_id,
     list_blocks,
     list_catalogs,
     list_conversations,
@@ -66,12 +73,14 @@ from app.services.flatmates import (
     update_flatmates_profile,
 )
 
+logger = get_logger(__name__)
+
 router = APIRouter()
 
 
 @router.get("/sse")
 async def flatmates_sse(
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: UserSchema = Depends(get_current_user_sse),
 ):
     """SSE stream for flatmates real-time events."""
     from app.core.sse import SSESubscriberLimitError, sse_bus
@@ -124,10 +133,8 @@ async def get_flatmates_bootstrap(
 
 @router.get("/catalogs", response_model=list[CatalogEntry])
 async def get_flatmates_catalogs(
-    current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    del current_user
     return await list_catalogs(db)
 
 
@@ -148,7 +155,34 @@ async def update_profile(
     return await update_flatmates_profile(db, current_user.id, payload)
 
 
-@router.get("/profiles", response_model=list[FlatmatesPeer])
+@router.patch("/profile", response_model=FlatmatesProfile)
+async def patch_profile(
+    payload: FlatmatesProfileUpdate,
+    current_user: UserSchema = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await update_flatmates_profile(db, current_user.id, payload)
+
+
+@router.post("/profile", response_model=FlatmatesProfile)
+async def create_profile(
+    payload: FlatmatesProfileUpdate,
+    current_user: UserSchema = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await update_flatmates_profile(db, current_user.id, payload)
+
+
+@router.get("/profiles/{user_id}", response_model=FlatmatesPeer)
+async def get_user_profile(
+    user_id: int,
+    current_user: UserSchema = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await get_profile_by_id(db, user_id)
+
+
+@router.get("/profiles", response_model=SwipeDeckResponse)
 async def get_discoverable_profiles(
     city: str | None = Query(default=None),
     budget_min: int | None = Query(default=None),
@@ -162,7 +196,7 @@ async def get_discoverable_profiles(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await list_discoverable_profiles(
+    profiles, total = await list_discoverable_profiles(
         db,
         current_user.id,
         city=city,
@@ -172,6 +206,7 @@ async def get_discoverable_profiles(
         limit=limit,
         offset=offset,
     )
+    return SwipeDeckResponse(profiles=profiles, total=total)
 
 
 @router.post("/swipes", response_model=SwipeResult)
@@ -230,6 +265,15 @@ async def get_conversations(
     return await list_conversations(db, current_user.id)
 
 
+@router.post("/conversations", response_model=ConversationSummary)
+async def create_conversation(
+    payload: ConversationCreate,
+    current_user: UserSchema = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await create_conversation_from_payload(db, current_user.id, payload)
+
+
 @router.get("/conversations/{conversation_id}", response_model=ConversationSummary)
 async def get_conversation_detail(
     conversation_id: int,
@@ -239,13 +283,14 @@ async def get_conversation_detail(
     return await get_conversation_summary(db, conversation_id, current_user.id)
 
 
-@router.get("/conversations/{conversation_id}/messages", response_model=list[MessageOut])
+@router.get("/conversations/{conversation_id}/messages", response_model=MessageListResponse)
 async def get_conversation_messages(
     conversation_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await list_messages(db, conversation_id, current_user.id)
+    messages = await list_messages(db, conversation_id, current_user.id)
+    return MessageListResponse(messages=messages, total=len(messages), has_more=False)
 
 
 @router.post("/conversations/{conversation_id}/messages", response_model=MessageOut)
@@ -275,7 +320,7 @@ async def unmatch(
     return await unmatch_match(db, current_user.id, match_id)
 
 
-@router.get("/blocks")
+@router.get("/blocks", response_model=list[BlockedUserOut])
 async def get_blocked_users(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),

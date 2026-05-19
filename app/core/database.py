@@ -85,6 +85,7 @@ bg_engine = create_async_engine(settings.ASYNC_DATABASE_URL, **_bg_engine_kwargs
 
 # ── Slow-checkout logging ──────────────────────────────────────────────────────
 _SLOW_CHECKOUT_THRESHOLD_S = 5.0
+_SESSION_HOLD_WARN_S = 30.0
 
 
 def _on_checkout(dbapi_conn, connection_record, connection_proxy):
@@ -135,6 +136,7 @@ AsyncSessionLocalBG = async_sessionmaker(
 # ── FastAPI dependencies ───────────────────────────────────────────────────────
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
+        session_start = time.monotonic()
         try:
             yield session
         except HTTPException:
@@ -152,6 +154,14 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         else:
             # Commit only if no exception occurred during the request
             await session.commit()
+        finally:
+            hold_time = time.monotonic() - session_start
+            if hold_time > _SESSION_HOLD_WARN_S:
+                logger.warning(
+                    "DB session held for %.1fs — possible connection leak",
+                    hold_time,
+                    stack_info=True,
+                )
 
 
 async def get_bg_db() -> AsyncGenerator[AsyncSession, None]:

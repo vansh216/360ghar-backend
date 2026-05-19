@@ -270,6 +270,8 @@ async def prescreen_flatmate_listing(
 
 
 async def list_blocks(db: AsyncSession, user_id: int) -> list[dict[str, Any]]:
+    from app.services.flatmates.helpers import _build_peer_payload
+
     stmt = (
         select(UserBlock, User)
         .join(User, User.id == UserBlock.blocked_user_id)
@@ -280,15 +282,8 @@ async def list_blocks(db: AsyncSession, user_id: int) -> list[dict[str, Any]]:
     return [
         {
             "id": block.id,
-            "blocked_user_id": block.blocked_user_id,
+            "blocked_user": _build_peer_payload(blocked_user),
             "created_at": block.created_at,
-            "user": {
-                "id": blocked_user.id,
-                "full_name": blocked_user.full_name,
-                "profile_image_url": blocked_user.profile_image_url,
-                "city": blocked_user.flatmates_city,
-                "locality": blocked_user.flatmates_locality,
-            },
         }
         for block, blocked_user in rows
     ]

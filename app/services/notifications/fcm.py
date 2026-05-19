@@ -21,6 +21,7 @@ FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging"
 _fcm_credentials: service_account.Credentials | None = None
 _fcm_token_expiry: float = 0.0
 _fcm_client: httpx.AsyncClient | None = None
+_fcm_available: bool | None = None  # None=unchecked, True=ok, False=creds missing
 
 
 def _get_fcm_client() -> httpx.AsyncClient:
@@ -39,38 +40,54 @@ async def close_fcm_client() -> None:
     _fcm_client = None
 
 
-def _access_token() -> str:
+def _access_token() -> str | None:
     """Create or reuse an OAuth2 access token from the service account file.
 
     Caches credentials and refreshes only when the token is near expiry.
+    Returns None (and sets _fcm_available=False) if credentials are missing,
+    so callers can degrade gracefully instead of crashing.
     """
-    global _fcm_credentials, _fcm_token_expiry
+    global _fcm_credentials, _fcm_token_expiry, _fcm_available
+
+    if _fcm_available is False:
+        return None
 
     # Lazy import to avoid hard dependency at app import time
     from google.auth.transport.requests import Request
     from google.oauth2 import service_account
 
     if not settings.FIREBASE_PROJECT_ID:
-        raise RuntimeError("FIREBASE_PROJECT_ID is not configured")
+        logger.error("FIREBASE_PROJECT_ID is not configured — push notifications disabled")
+        _fcm_available = False
+        return None
     creds_path = settings.GOOGLE_APPLICATION_CREDENTIALS
     if not creds_path or not os.path.exists(creds_path):
-        raise RuntimeError("GOOGLE_APPLICATION_CREDENTIALS path is invalid or missing")
+        logger.error(
+            "GOOGLE_APPLICATION_CREDENTIALS path is invalid or missing — push notifications disabled"
+        )
+        _fcm_available = False
+        return None
 
     import time as _time
 
     now = _time.time()
 
-    if _fcm_credentials is None:
-        _fcm_credentials = service_account.Credentials.from_service_account_file(
-            creds_path,
-            scopes=[FCM_SCOPE],
-        )
+    try:
+        if _fcm_credentials is None:
+            _fcm_credentials = service_account.Credentials.from_service_account_file(
+                creds_path,
+                scopes=[FCM_SCOPE],
+            )
 
-    if now >= _fcm_token_expiry:
-        _fcm_credentials.refresh(Request())
-        # Tokens typically last 1 hour; refresh 5 minutes early
-        _fcm_token_expiry = now + 3300
+        if now >= _fcm_token_expiry:
+            _fcm_credentials.refresh(Request())
+            _fcm_token_expiry = now + 3300
+    except Exception as exc:
+        logger.error("FCM credential initialization failed: %s", exc)
+        _fcm_available = False
+        return None
 
+    _fcm_available = True
     return str(_fcm_credentials.token)
 
 
@@ -138,6 +155,9 @@ def build_message(
 async def send_message(message: dict[str, Any]) -> dict[str, Any]:
     """Send a single FCM HTTP v1 message."""
     token = _access_token()
+    if token is None:
+        logger.warning("FCM send skipped — credentials not available")
+        return {"ok": False, "error": "FCM not configured"}
     project_id = settings.FIREBASE_PROJECT_ID
     url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
     client = _get_fcm_client()

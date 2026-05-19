@@ -1,9 +1,10 @@
 """Neighbourhood score scraper — Google Places API scoring for property listings."""
+from __future__ import annotations
+
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-import httpx
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -111,6 +112,8 @@ class NeighbourhoodScraper(BaseScraper):
 
     async def _score_location(self, lat: float, lng: float, api_key: str) -> dict:
         """Call Google Places API for each category and compute scores."""
+        from app.core.http import get_scraper_client
+
         location_str = f"{lat},{lng}"
         radius = getattr(settings, "NEIGHBOURHOOD_SCORE_RADIUS_M", 1500)
         category_scores: dict[str, int] = {}
@@ -121,44 +124,44 @@ class NeighbourhoodScraper(BaseScraper):
         malls: list[dict] = []
         api_calls = 0
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            for category, place_types in _CATEGORY_TYPES.items():
-                category_count = 0
-                for ptype in place_types:
-                    params = {
-                        "location": location_str,
-                        "radius": radius,
-                        "type": ptype,
-                        "key": api_key,
-                    }
-                    try:
-                        resp = await client.get(_PLACES_URL, params=params)
-                        resp.raise_for_status()
-                        data = resp.json()
-                        api_calls += 1
-                        places = data.get("results", [])
-                        category_count += len(places)
-                        for p in places[:3]:  # top 3 per type
-                            place_info = {
-                                "name": p.get("name"),
-                                "type": ptype,
-                                "distance_m": None,  # would need Distance Matrix API
-                                "rating": p.get("rating"),
-                            }
-                            nearby_places.append(place_info)
-                            if ptype == "subway_station":
-                                metro_stations.append(place_info)
-                            elif ptype in ("school", "university"):
-                                schools.append(place_info)
-                            elif ptype == "hospital":
-                                hospitals.append(place_info)
-                            elif ptype == "shopping_mall":
-                                malls.append(place_info)
-                        await asyncio.sleep(0.2)
-                    except Exception as e:
-                        logger.warning("Places API error for %s: %s", ptype, e)
-                # Score: min(count * 15, 100) — 7 places = full score
-                category_scores[category] = min(category_count * 15, 100)
+        client = get_scraper_client()
+        for category, place_types in _CATEGORY_TYPES.items():
+            category_count = 0
+            for ptype in place_types:
+                params = {
+                    "location": location_str,
+                    "radius": radius,
+                    "type": ptype,
+                    "key": api_key,
+                }
+                try:
+                    resp = await client.get(_PLACES_URL, params=params, timeout=15.0)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    api_calls += 1
+                    places = data.get("results", [])
+                    category_count += len(places)
+                    for p in places[:3]:  # top 3 per type
+                        place_info = {
+                            "name": p.get("name"),
+                            "type": ptype,
+                            "distance_m": None,  # would need Distance Matrix API
+                            "rating": p.get("rating"),
+                        }
+                        nearby_places.append(place_info)
+                        if ptype == "subway_station":
+                            metro_stations.append(place_info)
+                        elif ptype in ("school", "university"):
+                            schools.append(place_info)
+                        elif ptype == "hospital":
+                            hospitals.append(place_info)
+                        elif ptype == "shopping_mall":
+                            malls.append(place_info)
+                    await asyncio.sleep(0.2)
+                except Exception as e:
+                    logger.warning("Places API error for %s: %s", ptype, e)
+            # Score: min(count * 15, 100) — 7 places = full score
+            category_scores[category] = min(category_count * 15, 100)
 
         overall = int(sum(category_scores.values()) / max(len(category_scores), 1))
         stale_after = datetime.now(timezone.utc) + timedelta(days=_STALE_DAYS)

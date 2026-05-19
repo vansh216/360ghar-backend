@@ -43,6 +43,7 @@ class UserUpdate(BaseModel):
     current_longitude: float | None = None
     notification_settings: dict[str, bool] | None = None
     privacy_settings: dict[str, Any] | None = None
+    phone_verified: bool | None = None
 
     @field_validator('full_name')
     @classmethod
@@ -98,6 +99,7 @@ class UserInDB(UserBase):
     role: UserRole = UserRole.user
     is_active: bool
     is_verified: bool
+    phone_verified: bool = False
     profile_image_url: str | None = None
     preferences: dict[str, Any] | None = None
     current_latitude: float | None = None
@@ -135,3 +137,14 @@ class UserPreferences(BaseModel):
 class LocationUpdate(BaseModel):
     latitude: float
     longitude: float
+
+
+class PhoneUpdate(BaseModel):
+    phone: str
+
+    @field_validator('phone')
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Phone number is required")
+        return ValidationUtils.validate_phone(v)

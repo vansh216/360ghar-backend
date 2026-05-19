@@ -15,6 +15,20 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _normalize_image_mode(img: PILImage) -> tuple[PILImage, bool]:
+    """Normalize image mode for web output.
+
+    Returns (normalized_img, was_converted).  The caller must close
+    *normalized_img* if *was_converted* is True.
+    """
+    has_alpha = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
+    if has_alpha:
+        return img.convert("RGBA"), True
+    if img.mode == "P":
+        return img.convert("RGB"), True
+    return img, False
+
+
 # Standard thumbnail sizes
 THUMBNAIL_SIZES = {
     "small": (256, 128),
@@ -25,6 +39,9 @@ THUMBNAIL_SIZES = {
 # Default quality settings
 WEBP_QUALITY = 85
 JPEG_QUALITY = 85
+
+# Threshold: skip optimization if input is already WebP and under this size
+WEBP_SKIP_THRESHOLD = 100_000  # 100 KB
 
 
 def generate_thumbnail(
@@ -47,14 +64,9 @@ def generate_thumbnail(
         from PIL import Image
 
         with Image.open(io.BytesIO(image_bytes)) as img:
-            output_img = img
-            # Convert to RGB if necessary (for JPEG/WebP output)
-            if img.mode in ("RGBA", "P"):
-                output_img = img.convert("RGB")
+            output_img, _ = _normalize_image_mode(img)
 
             try:
-                # Calculate thumbnail size maintaining aspect ratio
-                # For 360 panoramas, we want to preserve the 2:1 ratio
                 width, height = output_img.size
                 aspect_ratio = width / height
 
@@ -65,7 +77,6 @@ def generate_thumbnail(
                     new_height = min(max_size, height)
                     new_width = int(new_height * aspect_ratio)
 
-                # Use high-quality resampling
                 output_img.thumbnail((new_width, new_height), Image.Resampling.LANCZOS)
 
                 # Save to bytes
@@ -104,10 +115,7 @@ def convert_to_webp(
         from PIL import Image
 
         with Image.open(io.BytesIO(image_bytes)) as img:
-            rgb_img = img
-            # Convert to RGB if necessary
-            if img.mode in ("RGBA", "P"):
-                rgb_img = img.convert("RGB")
+            rgb_img, _ = _normalize_image_mode(img)
 
             output_img = rgb_img
             try:
@@ -142,6 +150,91 @@ def convert_to_webp(
     except Exception as e:
         logger.error("WebP conversion failed: %s", e, exc_info=True)
         raise
+
+
+def optimize_for_web(
+    image_bytes: bytes,
+    *,
+    max_dimension: int = 2048,
+    quality: int = 85,
+) -> tuple[bytes, str]:
+    """Optimize an image for web delivery.
+
+    Converts to WebP, optionally downscales, and returns the optimized
+    bytes along with the content-type.
+
+    Skips optimization if the input is already WebP and under
+    ``WEBP_SKIP_THRESHOLD`` bytes.
+
+    Args:
+        image_bytes: Raw image bytes.
+        max_dimension: Maximum dimension (width or height). Images larger
+            than this are downscaled with LANCZOS resampling.
+        quality: WebP quality (0-100).
+
+    Returns:
+        Tuple of (optimized_bytes, content_type).
+    """
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            # Skip if already WebP and small enough
+            if img.format == "WEBP" and len(image_bytes) < WEBP_SKIP_THRESHOLD:
+                return image_bytes, "image/webp"
+
+            rgb_img, _ = _normalize_image_mode(img)
+
+            output_img = rgb_img
+            try:
+                width, height = output_img.size
+                if width > max_dimension or height > max_dimension:
+                    aspect_ratio = width / height
+                    if width >= height:
+                        new_width = max_dimension
+                        new_height = int(max_dimension / aspect_ratio)
+                    else:
+                        new_height = max_dimension
+                        new_width = int(max_dimension * aspect_ratio)
+                    output_img = output_img.resize(
+                        (new_width, new_height),
+                        Image.Resampling.LANCZOS,
+                    )
+
+                output = io.BytesIO()
+                output_img.save(output, format="WEBP", quality=quality, optimize=True, method=6)
+                output.seek(0)
+
+                # If the WebP is larger than the original, return the original
+                result = output.getvalue()
+                if len(result) >= len(image_bytes):
+                    return image_bytes, _infer_content_type(img.format)
+
+                return result, "image/webp"
+            finally:
+                if output_img is not rgb_img:
+                    output_img.close()
+                if rgb_img is not img:
+                    rgb_img.close()
+
+    except Exception as e:
+        logger.error("Web optimization failed: %s", e, exc_info=True)
+        raise
+
+
+def _infer_content_type(pil_format: str | None) -> str:
+    """Map PIL format string to MIME content-type."""
+    mapping = {
+        "JPEG": "image/jpeg",
+        "PNG": "image/png",
+        "WEBP": "image/webp",
+        "GIF": "image/gif",
+        "BMP": "image/bmp",
+        "TIFF": "image/tiff",
+    }
+    if pil_format and pil_format.upper() in mapping:
+        return mapping[pil_format.upper()]
+    return "application/octet-stream"
 
 
 def extract_exif(image_bytes: bytes) -> dict[str, Any]:
@@ -411,10 +504,8 @@ async def process_scene_image(image_bytes: bytes) -> dict[str, Any]:
         from PIL import Image
 
         with Image.open(io.BytesIO(image_bytes)) as img:
-            # Convert to RGB once if needed
-            rgb_img = img
-            if img.mode in ("RGBA", "P"):
-                rgb_img = img.convert("RGB")  # type: ignore[assignment]
+            # Convert mode once if needed
+            rgb_img, _ = _normalize_image_mode(img)
 
             try:
                 # --- Thumbnail (512px max) ---

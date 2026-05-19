@@ -11,7 +11,9 @@ from fastapi import FastAPI
 from app.config import settings
 from app.core.cache import initialize_cache, shutdown_cache
 from app.core.database import bg_engine, engine
+from app.core.http import close_all_clients as close_all_http_clients
 from app.core.logging import get_logger
+from app.infrastructure.scheduler import shutdown_scheduler, start_scheduler
 
 logger = get_logger(__name__)
 
@@ -29,7 +31,8 @@ def create_lifespan(testing: bool, user_mcp_app: Any, admin_mcp_app: Any) -> Lif
                     if not testing:
                         await _initialize_cache()
                         await _apply_pending_migrations()
-                        _start_schedulers(app)
+                        _register_scheduler_jobs(app)
+                        start_scheduler()
                 except Exception as exc:
                     logger.error("Application startup failed: %s", exc)
 
@@ -48,9 +51,10 @@ def create_lifespan(testing: bool, user_mcp_app: Any, admin_mcp_app: Any) -> Lif
 
                 # ---- Graceful shutdown ----
                 if not testing:
-                    _shutdown_schedulers()
+                    shutdown_scheduler()
                     await _shutdown_ai_providers()
                     await _shutdown_shared_http_clients()
+                    await close_all_http_clients()
                     _shutdown_notification_executor()
                     await _shutdown_supabase_clients()
                     await _shutdown_cache()
@@ -70,6 +74,14 @@ async def _apply_pending_migrations() -> None:
             (
                 "image_category: add floor_plan",
                 "ALTER TYPE image_category ADD VALUE IF NOT EXISTS 'floor_plan'",
+            ),
+            (
+                "leases: add termination_date",
+                "ALTER TABLE public.leases ADD COLUMN IF NOT EXISTS termination_date date",
+            ),
+            (
+                "leases: add termination_reason",
+                "ALTER TABLE public.leases ADD COLUMN IF NOT EXISTS termination_reason text",
             ),
         ):
             try:
@@ -93,7 +105,8 @@ async def _shutdown_cache() -> None:
         logger.warning("Cache disconnect skipped/failed: %s", cache_e)
 
 
-def _start_schedulers(app: FastAPI) -> None:
+def _register_scheduler_jobs(app: FastAPI) -> None:
+    """Register all scheduler jobs on the shared APScheduler, then start it."""
     if settings.SERVERLESS_ENABLED:
         logger.info(
             "Serverless mode enabled — skipping in-process schedulers "
@@ -101,65 +114,46 @@ def _start_schedulers(app: FastAPI) -> None:
         )
         return
 
-    _start_auto_blog_publish_scheduler(app)
-    _start_notification_scheduler(app)
-    _start_vector_sync_scheduler(app)
-    _start_data_hub_scheduler(app)
+    _register_blog_publish_job(app)
+    _register_notification_job(app)
+    _register_vector_sync_job(app)
+    _register_data_hub_jobs(app)
 
 
-def _start_auto_blog_publish_scheduler(app: FastAPI) -> None:
+def _register_blog_publish_job(app: FastAPI) -> None:
     try:
-        from app.services.blog_auto_publish_scheduler import (
-            start_auto_blog_publish_scheduler,
-        )
+        from app.services.blog_auto_publish_scheduler import start_auto_blog_publish_scheduler
 
         start_auto_blog_publish_scheduler(app)
     except Exception as sched_blog_e:
-        logger.error("Failed to start auto blog publish scheduler: %s", sched_blog_e, exc_info=True)
+        logger.error("Failed to register blog publish scheduler: %s", sched_blog_e, exc_info=True)
 
 
-def _start_notification_scheduler(app: FastAPI) -> None:
+def _register_notification_job(app: FastAPI) -> None:
     try:
         from app.services.notification_scheduler import start_notification_scheduler
 
         start_notification_scheduler(app)
     except Exception as sched_e:
-        logger.error("Failed to start notification scheduler: %s", sched_e, exc_info=True)
+        logger.error("Failed to register notification scheduler: %s", sched_e, exc_info=True)
 
 
-def _start_vector_sync_scheduler(app: FastAPI) -> None:
+def _register_vector_sync_job(app: FastAPI) -> None:
     try:
         from app.services.vector_sync_scheduler import start_vector_sync_scheduler
 
         start_vector_sync_scheduler(app)
     except Exception as sched_vec_e:
-        logger.error("Failed to start vector sync scheduler: %s", sched_vec_e, exc_info=True)
+        logger.error("Failed to register vector sync scheduler: %s", sched_vec_e, exc_info=True)
 
 
-def _start_data_hub_scheduler(app: FastAPI) -> None:
+def _register_data_hub_jobs(app: FastAPI) -> None:
     try:
         from app.services.data_hub_scheduler import start_data_hub_scheduler
 
         start_data_hub_scheduler(app)
     except Exception as sched_dh_e:
-        logger.error("Failed to start data hub scheduler: %s", sched_dh_e, exc_info=True)
-
-
-def _shutdown_schedulers() -> None:
-    """Gracefully stop all APScheduler instances via their public shutdown APIs."""
-    for mod_path in (
-        "app.services.blog_auto_publish_scheduler",
-        "app.services.notification_scheduler",
-        "app.services.vector_sync_scheduler",
-        "app.services.data_hub_scheduler",
-    ):
-        try:
-            import importlib
-
-            mod = importlib.import_module(mod_path)
-            mod.shutdown_scheduler()
-        except Exception as e:
-            logger.warning("Failed to shutdown scheduler %s: %s", mod_path, e)
+        logger.error("Failed to register data hub scheduler: %s", sched_dh_e, exc_info=True)
 
 
 async def _shutdown_ai_providers() -> None:
@@ -172,7 +166,7 @@ async def _shutdown_ai_providers() -> None:
 
 
 async def _shutdown_shared_http_clients() -> None:
-    """Close reusable service HTTP clients."""
+    """Close reusable service HTTP clients (FCM, SMS)."""
     try:
         from app.services.notifications.fcm import close_fcm_client
         from app.services.sms import close_sms_client

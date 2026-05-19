@@ -135,6 +135,9 @@ async def send_to_token(
 
         await _run_sync(_sync_record_delivery)
         return {"ok": True, "fcm": resp}
+    except RuntimeError as e:
+        logger.error("FCM send skipped — credentials not available: %s", e)
+        return {"ok": False, "error": "FCM not configured"}
     except httpx.HTTPStatusError as e:
         err_text = e.response.text
         logger.error("FCM send failed", extra={"status": e.response.status_code, "error": err_text}, exc_info=True)
@@ -268,16 +271,20 @@ async def send_to_topic(
         audience_type="topic",
         topic=topic,
     )
-    msg = fcm.build_message(
-        topic=topic,
-        title=title,
-        body=body,
-        data=payload_data,
-        deep_link=deep_link,
-        priority_high=priority_high,
-        ttl_seconds=ttl,
-    )
-    resp = await fcm.send_message(msg)
+    try:
+        msg = fcm.build_message(
+            topic=topic,
+            title=title,
+            body=body,
+            data=payload_data,
+            deep_link=deep_link,
+            priority_high=priority_high,
+            ttl_seconds=ttl,
+        )
+        resp = await fcm.send_message(msg)
+    except RuntimeError as e:
+        logger.error("FCM send skipped — credentials not available: %s", e)
+        return {"ok": False, "error": "FCM not configured"}
 
     def _sync_record_delivery():
         supa = _supa()

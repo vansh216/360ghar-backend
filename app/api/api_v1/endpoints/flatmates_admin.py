@@ -171,15 +171,16 @@ async def moderate_listing(
 
     # --- SSE event to listing owner ---
     try:
-        from app.core.sse import sse_bus
+        from app.core.sse import SSE_PROPERTY_UPDATE, sse_bus
 
         await sse_bus.emit(
             listing.owner_id,
             {
-                "type": "listing_status_changed",
-                "listing_id": listing.id,
-                "status": moderation_status,
-                "reason": reason,
+                "type": SSE_PROPERTY_UPDATE,
+                "data": {
+                    "property_id": listing.id,
+                    "change_type": moderation_status,
+                },
             },
         )
     except Exception:  # noqa: BLE001

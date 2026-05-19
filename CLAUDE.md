@@ -17,12 +17,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Running the API
 ```bash
-uv run python run.py                               # Using uv (recommended)
-python run.py                                      # Direct Python
-fastapi dev app/main.py --host 0.0.0.0 --port 8000 # Hot reload (FastAPI CLI)
+uv run python run.py                                                  # Primary (recommended) — uses uv's managed venv
+uv run fastapi dev app/main.py --host 0.0.0.0 --port 3600             # Hot reload via FastAPI CLI
 ```
 
-> **Note:** This project uses `uv` for dependency management. Dependencies are declared in `pyproject.toml` and locked in `uv.lock`.
+> **Note:** This project uses `uv` for dependency management. Dependencies are declared in `pyproject.toml` and locked in `uv.lock`. **Always prefix commands with `uv run`** — running `python run.py` or `fastapi dev` directly uses the system Python which lacks project dependencies (e.g., `pgvector`) and will fail with `ModuleNotFoundError`.
 
 ### Testing
 ```bash
@@ -109,7 +108,7 @@ app/
 │   ├── storage_paths.py    # Upload path generation + sanitization
 │   ├── image_processing.py # Thumbnail generation, EXIF extraction (Pillow)
 │   ├── custom_domain.py    # Custom domain DNS verification for tours
-│   └── infrastructure/     # Composition root wiring (lifespan, middleware, errors, MCP app construction, routing, request_context)
+│   └── infrastructure/     # Composition root wiring (lifespan, middleware, errors, MCP app construction, routing, request_context, scheduler)
 ├── repositories/           # Complex database queries (BaseRepository, PropertyRepository, PropertyQueryBuilder)
 ├── models/                 # SQLAlchemy ORM models
 │   └── social.py           # UserMatch, UserConversation, UserMessage, UserBlock, UserReport, AppCatalog
@@ -121,6 +120,7 @@ app/
 │   └── chatgpt/            # ChatGPT-specific tools (discovery, visits, PM split modules) + response formatter
 ├── core/                   # Config, auth, database, exceptions, logging, websocket, SSE
 │   ├── cache/              # Cache subsystem (memory + Redis backends, decorators, PropertyCacheManager)
+│   ├── http.py             # Shared httpx.AsyncClient singletons (scraper, blog, general)
 │   ├── constants.py        # Vision provider defaults, valid providers
 │   ├── db_resilience.py    # Transient DB error detection + retry-with-rollback
 │   ├── sse.py              # SSE event bus (subscribe/emit/keepalive for real-time flatmates events)
@@ -152,7 +152,7 @@ app/
 
 **DB Session Hygiene for Streaming**: SSE and other streaming endpoints release the main-pool DB session before streaming and use a background-pool session (`get_bg_db`) for tool calls.
 
-**Graceful Shutdown**: On app shutdown, `app/infrastructure/lifespan.py` calls `shutdown_scheduler()` on each APScheduler instance, closes cached AI provider HTTP clients, shuts down the notification thread pool, disposes Supabase sync/async HTTP clients, and disposes both DB engines.
+**Graceful Shutdown**: On app shutdown, `app/infrastructure/lifespan.py` shuts down the shared `AsyncIOScheduler`, closes cached AI provider HTTP clients, shuts down the notification thread pool, closes all shared httpx clients (scraper, blog, general + FCM + SMS), disposes Supabase sync/async HTTP clients, and disposes both DB engines.
 
 ### Service Layer Pattern
 ```python
@@ -180,6 +180,8 @@ async def get_properties(
 |---------|----------|
 | App factory (thin composition root) | `app/factory.py` |
 | Infrastructure wiring | `app/infrastructure/` (lifespan, middleware, errors, mcp, routing, request_context) |
+| Shared scheduler | `app/infrastructure/scheduler.py` |
+| Shared HTTP clients | `app/core/http.py` |
 | Main entry | `app/main.py` |
 | API router | `app/api/api_v1/api.py` |
 | Database config | `app/core/database.py` |
@@ -238,13 +240,23 @@ async def get_properties(
 | Domain modules (reserved) | `app/modules/` |
 | Shared contracts (reserved) | `app/shared/` |
 
-**Background schedulers** (wired in `app/infrastructure/lifespan.py` startup; graceful shutdown via `shutdown_scheduler()` on each):
+**Background schedulers** (all register jobs on a single shared `AsyncIOScheduler` from `app/infrastructure/scheduler.py`, wired in `app/infrastructure/lifespan.py` startup; graceful shutdown via `shutdown_scheduler()`):
 - Blog auto-publish scheduler (`app/services/blog_auto_publish_scheduler.py`)
 - Notification scheduler (`app/services/notification_scheduler.py`)
 - Vector sync scheduler (`app/services/vector_sync_scheduler.py`)
 - Data hub scheduler (`app/services/data_hub_scheduler.py`)
 
 > In serverless mode (`SERVERLESS_ENABLED=True`), all schedulers are skipped to allow scale-to-zero; move cron work to Railway cron jobs.
+
+**Shared HTTP clients** (`app/core/http.py`): Three domain-specific `httpx.AsyncClient` singletons for connection reuse. Do not create ephemeral `async with httpx.AsyncClient()` per request — use the shared clients with per-request `timeout=` overrides:
+
+| Client | Default timeout | Used by |
+|--------|----------------|---------|
+| `get_scraper_client()` | 30s | Data hub scrapers, jamabandi, gazette, neighbourhood |
+| `get_blog_client()` | 120s | Perplexity blog generation, SerpAPI image search |
+| `get_general_client()` | 30s | Image downloads, geocoding, OAuth metadata, image gen |
+
+> Per-request `timeout=` overrides the client default (e.g., `client.get(url, timeout=180.0)` for image gen's 180s timeout).
 
 ## Coding Conventions
 

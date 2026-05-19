@@ -175,3 +175,6 @@ supabase/.temp/
 # Local screenshot artifacts
 blog_check_1886.png
 blog_verify_full.png
+
+# Disk cache files
+cache/

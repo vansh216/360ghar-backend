@@ -24,6 +24,7 @@ from app.core.exceptions import (
 )
 from app.core.logging import get_logger
 from app.models.tours import MediaFile
+from app.services import image_processing
 from app.services.storage_paths import (
     StorageFolder,
     generate_storage_path,
@@ -44,6 +45,13 @@ from .processing import process_existing_scene_image as _process_existing_scene_
 from .processing import upload_scene_image as _upload_scene_image
 
 logger = get_logger(__name__)
+
+OPTIMIZE_SETTINGS: dict[StorageFolder, tuple[int, int]] = {
+    StorageFolder.AVATAR: (512, 85),
+    StorageFolder.AGENT_AVATAR: (512, 85),
+    StorageFolder.PROPERTY_IMAGE: (2048, 80),
+    StorageFolder.BLOG_COVER: (2048, 80),
+}
 
 
 class StorageService:
@@ -123,13 +131,32 @@ class StorageService:
             # Read file content
             file_content = await file.read()
 
+            content_type = file.content_type
+            is_image = content_type and content_type.startswith("image/")
+            if is_image and folder in OPTIMIZE_SETTINGS:
+                try:
+                    max_dim, quality = OPTIMIZE_SETTINGS[folder]
+                    optimized_bytes, new_content_type = image_processing.optimize_for_web(
+                        file_content,
+                        max_dimension=max_dim,
+                        quality=quality,
+                    )
+                    if new_content_type != content_type:
+                        # Update filename extension to .webp if format changed
+                        file_path = file_path.rsplit(".", 1)[0] + ".webp" if "." in file_path else file_path
+                    file_content = optimized_bytes
+                    content_type = new_content_type
+                except Exception as exc:
+                    logger.warning("Image optimization failed, uploading original: %s", exc)
+
             # Upload to storage
+            cache_control = "public, max-age=31536000" if is_image else "3600"
             response = self.supabase.storage.from_(self.bucket_name).upload(
                 path=file_path,
                 file=file_content,
                 file_options={
-                    "content-type": file.content_type,
-                    "cache-control": "3600",
+                    "content-type": content_type,
+                    "cache-control": cache_control,
                     "upsert": False,
                 },
             )
@@ -146,7 +173,7 @@ class StorageService:
                 "public_url": public_url,
                 "file_type": folder.name.lower(),
                 "file_size": len(file_content),
-                "content_type": file.content_type,
+                "content_type": content_type,
                 "original_filename": file.filename,
             }
 
@@ -614,6 +641,30 @@ class StorageService:
         """Get public URL for file."""
         target_bucket = bucket_name or self.bucket_name
         return str(self.supabase.storage.from_(target_bucket).get_public_url(file_path))
+
+    def extract_path_from_url(self, public_url: str, bucket_name: str | None = None) -> str | None:
+        """Extract the storage path from a Supabase public URL.
+
+        Supabase public URL format:
+            ``https://{project}.supabase.co/storage/v1/object/public/{bucket}/{path}``
+
+        Args:
+            public_url: The full public URL returned by ``get_public_url``.
+            bucket_name: Bucket name to strip (defaults to the service bucket).
+
+        Returns:
+            The storage path (e.g. ``users/123/avatars/uuid.webp``), or ``None``
+            if the URL cannot be parsed.
+        """
+        try:
+            target_bucket = bucket_name or self.bucket_name
+            prefix = f"/object/public/{target_bucket}/"
+            idx = public_url.find(prefix)
+            if idx == -1:
+                return None
+            return public_url[idx + len(prefix) :]
+        except Exception:
+            return None
 
     def list_files(self, folder: str, bucket_name: str | None = None) -> list[dict[str, Any]]:
         """List files in a folder."""

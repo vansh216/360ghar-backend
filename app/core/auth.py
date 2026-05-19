@@ -102,6 +102,55 @@ class SupabaseClientManager:
 
     # -- Auth operations --------------------------------------------------------
 
+    def _admin_headers(self, *, json: bool = False) -> dict[str, str]:
+        """Return GoTrue Admin API headers (service role key)."""
+        h: dict[str, str] = {
+            "apikey": settings.SUPABASE_SECRET_KEY,
+            "Authorization": f"Bearer {settings.SUPABASE_SECRET_KEY}",
+        }
+        if json:
+            h["Content-Type"] = "application/json"
+        return h
+
+    def _admin_url(self, path: str) -> str:
+        """Build a GoTrue Admin API URL."""
+        return f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1{path}"
+
+    async def _admin_find_user_by_field(
+        self, field: str, value: str
+    ) -> dict[str, Any] | None:
+        """Lookup a user via Supabase GoTrue Admin by a single field."""
+        url = self._admin_url("/admin/users")
+        params: dict[str, str | int] = {field: value, "per_page": 1}
+        try:
+            client = self.get_auth_http_client()
+            resp = await client.get(url, headers=self._admin_headers(), params=params)
+            if resp.status_code == 200:
+                data = resp.json()
+                users: list[dict[str, Any]] = []
+                if isinstance(data, dict) and "users" in data:
+                    users = data.get("users") or []
+                elif isinstance(data, list):
+                    users = data
+                for user in users:
+                    if user.get(field) == value:
+                        return {
+                            "id": user.get("id"),
+                            "email": user.get("email"),
+                            "phone": user.get("phone"),
+                            "user_metadata": user.get("user_metadata") or {},
+                        }
+                return None
+            if resp.status_code == 404:
+                return None
+            logger.warning(
+                "Admin user lookup by %s failed: %s %s", field, resp.status_code, resp.text[:200]
+            )
+            return None
+        except Exception as e:
+            logger.error("Admin user lookup by %s error: %s", field, e)
+            return None
+
     async def verify_token(self, token: str) -> dict[str, Any] | None:
         """Verify Supabase JWT by calling the Supabase Auth API."""
         url = f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/user"
@@ -151,45 +200,27 @@ class SupabaseClientManager:
 
     async def admin_find_user_by_phone(self, phone: str) -> dict[str, Any] | None:
         """Lookup a user via Supabase GoTrue Admin by phone."""
-        base = settings.SUPABASE_URL.rstrip('/') + '/auth/v1'
-        url = f"{base}/admin/users"
-        headers = {
-            "apikey": settings.SUPABASE_SECRET_KEY,
-            "Authorization": f"Bearer {settings.SUPABASE_SECRET_KEY}",
-        }
-        params: dict[str, str | int] = {"phone": phone, "per_page": 1}
+        return await self._admin_find_user_by_field("phone", phone)
+
+    async def admin_get_user_by_email(self, email: str) -> dict[str, Any] | None:
+        """Lookup a Supabase Auth user by email via GoTrue Admin API."""
+        return await self._admin_find_user_by_field("email", email)
+
+    async def admin_link_identity(self, user_id: str, provider: str, id_token: str) -> bool:
+        """Link an OAuth identity to an existing Supabase user via GoTrue Admin API."""
+        url = self._admin_url(f"/admin/users/{user_id}/identities")
+        payload = {"provider": provider, "id_token": id_token}
         try:
             client = self.get_auth_http_client()
-            resp = await client.get(url, headers=headers, params=params)
-            if resp.status_code == 200:
-                data = resp.json()
-                users = None
-                if isinstance(data, dict) and "users" in data:
-                    users = data.get("users") or []
-                elif isinstance(data, list):
-                    users = data
-                else:
-                    users = []
-                if users:
-                    user = users[0]
-                    if user.get("phone") == phone:
-                        return {
-                            "id": user.get("id"),
-                            "email": user.get("email"),
-                            "phone": user.get("phone"),
-                            "user_metadata": user.get("user_metadata") or {},
-                        }
-                    return None
-                return None
-            if resp.status_code == 404:
-                return None
-            logger.warning(
-                "Admin user lookup by phone failed: %s %s", resp.status_code, resp.text
-            )
-            return None
+            resp = await client.post(url, headers=self._admin_headers(json=True), json=payload)
+            if resp.status_code in (200, 201):
+                logger.info("Successfully linked %s identity to user %s", provider, user_id)
+                return True
+            logger.warning("Failed to link identity: %s %s", resp.status_code, resp.text[:200])
+            return False
         except Exception as e:
-            logger.error("Admin user lookup error: %s", e)
-            return None
+            logger.error("Admin link identity error: %s", e)
+            return False
 
     # -- Internal ---------------------------------------------------------------
 
@@ -256,3 +287,13 @@ async def admin_find_user_by_phone(phone: str) -> dict[str, Any] | None:
     Returns a minimal user dict if found, else None.
     """
     return await _manager.admin_find_user_by_phone(phone)
+
+
+async def admin_get_user_by_email(email: str) -> dict[str, Any] | None:
+    """Lookup a Supabase Auth user by email via GoTrue Admin API."""
+    return await _manager.admin_get_user_by_email(email)
+
+
+async def admin_link_identity(user_id: str, provider: str, id_token: str) -> bool:
+    """Link an OAuth identity to an existing Supabase user."""
+    return await _manager.admin_link_identity(user_id, provider, id_token)

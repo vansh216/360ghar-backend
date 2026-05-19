@@ -592,38 +592,38 @@ async def get_unified_properties_optimized(
             operation_name="property_search_count",
         )
 
-        properties: list[Property] = []
+        total_count = count_result.scalar()
+
+        # Build PropertySchema list directly, avoiding ORM attribute corruption
+        # when add_columns() returns Row tuples instead of pure ORM objects.
         if has_additional_columns:
             rows = result.all()
+            property_list = []
             for row in rows:
                 mapping = row._mapping if hasattr(row, "_mapping") else {}
-                prop = row[0]
-                if not isinstance(prop, Property):
-                    prop = mapping.get("Property") or mapping.get(Property)
-                    if prop is None:
-                        prop = row[0] if isinstance(row, tuple) and len(row) > 0 else row
-                if isinstance(prop, Property):
-                    try:
-                        if "distance_km" in mapping and mapping["distance_km"] is not None:
-                            prop.distance_km = float(mapping["distance_km"])  # type: ignore[attr-defined]
-                        if "vector_distance" in mapping and mapping["vector_distance"] is not None:
-                            prop.vector_distance = float(mapping["vector_distance"])  # type: ignore[attr-defined]
-                        if "relevance_score" in mapping and mapping["relevance_score"] is not None:
-                            prop.relevance_score = float(mapping["relevance_score"])  # type: ignore[attr-defined]
-                    except (TypeError, ValueError, KeyError) as exc:
-                        logger.debug("Failed to cast property score fields: %s", exc)
-                    properties.append(prop)
+                prop = mapping.get("Property") or mapping.get(Property)
+                if prop is None:
+                    prop = row[0] if isinstance(row, tuple) and len(row) > 0 else row
+                if not prop:
+                    continue
+                schema = PropertySchema.model_validate(prop)
+                if "distance_km" in mapping and mapping["distance_km"] is not None:
+                    schema.distance_km = float(mapping["distance_km"])
+                if "vector_distance" in mapping and mapping["vector_distance"] is not None:
+                    schema.vector_distance = float(mapping["vector_distance"])
+                if "relevance_score" in mapping and mapping["relevance_score"] is not None:
+                    schema.relevance_score = float(mapping["relevance_score"])
+                property_list.append(schema)
         else:
             properties = list(result.scalars().all())
-
-        total_count = count_result.scalar()
+            property_list = [PropertySchema.model_validate(prop) for prop in properties]
 
         logger.info(
             "Found %s properties out of %s total",
-            len(properties),
+            len(property_list),
             total_count,
             extra={
-                "result_count": len(properties),
+                "result_count": len(property_list),
                 "total_count": total_count,
                 "page": page,
                 "limit": limit,
@@ -633,8 +633,6 @@ async def get_unified_properties_optimized(
                 "purpose": filters.purpose.value if filters.purpose else None,
             },
         )
-
-        property_list = [PropertySchema.model_validate(prop) for prop in properties]
 
         # Calculate total pages
         total_pages = ((total_count or 0) + limit - 1) // limit

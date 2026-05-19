@@ -60,10 +60,12 @@ class BaseScraper(ABC):
     )
     async def _fetch_url(self, url: str, **kwargs) -> str:
         """Fetch URL with tenacity retry (3 attempts, exponential 2s→4s→8s)."""
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            response = await client.get(url, **kwargs)
-            response.raise_for_status()
-            return response.text
+        from app.core.http import get_scraper_client
+
+        client = get_scraper_client()
+        response = await client.get(url, **kwargs)
+        response.raise_for_status()
+        return response.text
 
     @asynccontextmanager
     async def _playwright_browser(self):

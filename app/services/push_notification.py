@@ -44,12 +44,12 @@ async def _dispatch(
     """
     # --- SSE event to user (always fire, even if FCM is down) ---
     try:
-        from app.core.sse import sse_bus
+        from app.core.sse import SSE_NEW_NOTIFICATION, sse_bus
 
         await sse_bus.emit(
             user_db_id,
             {
-                "type": "new_notification",
+                "type": SSE_NEW_NOTIFICATION,
                 "type_key": type_key,
                 "title": title,
                 "body": body,

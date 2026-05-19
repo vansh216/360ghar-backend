@@ -55,6 +55,14 @@ async def get_flatmates_profile(db: AsyncSession, user_id: int) -> dict[str, Any
     return _build_profile_payload(user)
 
 
+async def get_profile_by_id(db: AsyncSession, user_id: int) -> dict[str, Any]:
+    """Return a flatmates peer payload for an arbitrary user (used by GET /profiles/{user_id})."""
+    user = await db.get(User, user_id)
+    if user is None:
+        raise BadRequestException(detail="User not found")
+    return _build_peer_payload(user, current_user=None)
+
+
 async def list_discoverable_profiles(
     db: AsyncSession,
     user_id: int,
@@ -65,7 +73,7 @@ async def list_discoverable_profiles(
     move_in: str | None = None,
     limit: int = 20,
     offset: int = 0,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], int]:
     from app.models.social import UserBlock  # noqa: WPS433 – avoid top-level circular risk
 
     blocked_stmt = select(UserBlock.blocked_user_id).where(
@@ -161,6 +169,9 @@ async def list_discoverable_profiles(
     if move_in_values:
         filters.append(User.flatmates_move_in_timeline.in_(move_in_values))
 
+    count_stmt = select(func.count(User.id)).where(*filters)
+    total = int((await db.execute(count_stmt)).scalar() or 0)
+
     stmt = (
         select(User)
         .where(*filters)
@@ -169,7 +180,8 @@ async def list_discoverable_profiles(
         .offset(offset)
     )
     users = list((await db.execute(stmt)).scalars().all())
-    return [_build_peer_payload(u, current_user=requesting_user) for u in users]
+    profiles = [_build_peer_payload(u, current_user=requesting_user) for u in users]
+    return profiles, total
 
 
 async def update_flatmates_profile(

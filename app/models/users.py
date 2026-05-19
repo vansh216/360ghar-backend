@@ -44,6 +44,7 @@ class User(Base):
     role: Mapped[UserRole] = mapped_column(SQLEnum(UserRole, name='user_role'), default=UserRole.user)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    phone_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     preferences: Mapped[dict | None] = mapped_column(JSON, default=dict)
     current_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     current_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -68,6 +69,7 @@ class User(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    is_seed_data: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)

@@ -7,6 +7,14 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Canonical SSE event type constants — use these instead of raw strings.
+SSE_SWIPE = "swipe"
+SSE_MESSAGE = "message"
+SSE_NOTIFICATION = "notification"
+SSE_VISIT_UPDATED = "visit_updated"
+SSE_PROPERTY_UPDATE = "property_update"
+SSE_NEW_NOTIFICATION = "new_notification"
+
 
 class SSESubscriberLimitError(RuntimeError):
     """Raised when the process-level SSE subscriber cap is reached."""

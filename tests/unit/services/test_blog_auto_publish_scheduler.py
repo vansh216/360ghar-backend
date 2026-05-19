@@ -1,21 +1,19 @@
+from __future__ import annotations
+
 import pytest
 
-from app.services import blog_auto_publish_scheduler
+import app.services.blog_auto_publish_scheduler as mod
+from app.infrastructure import scheduler as scheduler_mod
 
 
 class DummyScheduler:
     def __init__(self, timezone=None):
         self.jobs = []
         self.running = False
-        self.start_calls = 0
         self.timezone = timezone
 
     def add_job(self, func, trigger, **kwargs):
         self.jobs.append({"func": func, "trigger": trigger, "kwargs": kwargs})
-
-    def start(self):
-        self.running = True
-        self.start_calls += 1
 
 
 def _trigger_timezone_name(trigger) -> str:
@@ -25,29 +23,27 @@ def _trigger_timezone_name(trigger) -> str:
 
 @pytest.mark.asyncio
 async def test_start_auto_blog_scheduler_is_disabled(monkeypatch):
-    monkeypatch.setattr(blog_auto_publish_scheduler.settings, "AUTO_BLOG_ENABLED", False)
-    monkeypatch.setattr(blog_auto_publish_scheduler, "_scheduler", None)
+    monkeypatch.setattr(mod.settings, "AUTO_BLOG_ENABLED", False)
+    dummy = DummyScheduler()
+    monkeypatch.setattr(scheduler_mod, "_scheduler", dummy)
 
-    blog_auto_publish_scheduler.start_auto_blog_scheduler(app=None)
+    mod.start_auto_blog_scheduler(app=None)
 
-    assert blog_auto_publish_scheduler._scheduler is None
+    assert len(dummy.jobs) == 0
 
 
 @pytest.mark.asyncio
 async def test_start_auto_blog_scheduler_registers_daily_job(monkeypatch):
-    monkeypatch.setattr(blog_auto_publish_scheduler.settings, "AUTO_BLOG_ENABLED", True)
-    monkeypatch.setattr(blog_auto_publish_scheduler.settings, "AUTO_BLOG_CRON", "0 20 * * *")
-    monkeypatch.setattr(blog_auto_publish_scheduler.settings, "AUTO_BLOG_TIMEZONE", "Asia/Kolkata")
-    monkeypatch.setattr(blog_auto_publish_scheduler, "_scheduler", None)
-    monkeypatch.setattr(blog_auto_publish_scheduler, "AsyncIOScheduler", DummyScheduler)
+    monkeypatch.setattr(mod.settings, "AUTO_BLOG_ENABLED", True)
+    monkeypatch.setattr(mod.settings, "AUTO_BLOG_CRON", "0 20 * * *")
+    monkeypatch.setattr(mod.settings, "AUTO_BLOG_TIMEZONE", "Asia/Kolkata")
+    dummy = DummyScheduler()
+    monkeypatch.setattr(scheduler_mod, "_scheduler", dummy)
 
-    blog_auto_publish_scheduler.start_auto_blog_scheduler(app=None)
+    mod.start_auto_blog_scheduler(app=None)
 
-    scheduler = blog_auto_publish_scheduler._scheduler
-    assert scheduler is not None
-    assert scheduler.start_calls == 1
-    assert len(scheduler.jobs) == 1
-    job = scheduler.jobs[0]
+    assert len(dummy.jobs) == 1
+    job = dummy.jobs[0]
     assert job["kwargs"]["id"] == "auto_blog_publish"
     assert job["kwargs"]["replace_existing"] is True
     assert job["kwargs"]["max_instances"] == 1
@@ -55,20 +51,3 @@ async def test_start_auto_blog_scheduler_registers_daily_job(monkeypatch):
     assert _trigger_timezone_name(job["trigger"]) == "Asia/Kolkata"
     assert "hour='20'" in str(job["trigger"])
     assert "minute='0'" in str(job["trigger"])
-
-
-@pytest.mark.asyncio
-async def test_start_auto_blog_scheduler_is_idempotent(monkeypatch):
-    monkeypatch.setattr(blog_auto_publish_scheduler.settings, "AUTO_BLOG_ENABLED", True)
-    monkeypatch.setattr(blog_auto_publish_scheduler.settings, "AUTO_BLOG_CRON", "0 20 * * *")
-    monkeypatch.setattr(blog_auto_publish_scheduler.settings, "AUTO_BLOG_TIMEZONE", "Asia/Kolkata")
-    monkeypatch.setattr(blog_auto_publish_scheduler, "_scheduler", None)
-    monkeypatch.setattr(blog_auto_publish_scheduler, "AsyncIOScheduler", DummyScheduler)
-
-    blog_auto_publish_scheduler.start_auto_blog_scheduler(app=None)
-    first_scheduler = blog_auto_publish_scheduler._scheduler
-    blog_auto_publish_scheduler.start_auto_blog_scheduler(app=None)
-
-    assert blog_auto_publish_scheduler._scheduler is first_scheduler
-    assert first_scheduler.start_calls == 1
-    assert len(first_scheduler.jobs) == 1

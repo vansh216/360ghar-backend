@@ -8,7 +8,6 @@ from typing import Any
 from urllib.parse import urlparse
 
 import anyio
-import httpx
 from pydantic import BaseModel, HttpUrl
 
 from app.core.logging import get_logger
@@ -424,17 +423,19 @@ async def fetch_client_metadata(client_id: str) -> dict[str, Any] | None:
                 )
                 return None
 
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
-            resp = await client.get(client_id)
-            if resp.status_code == 200:
-                metadata = resp.json()
-                if metadata.get("client_id") == client_id:
-                    if "redirect_uris" in metadata and "client_name" in metadata:
-                        logger.info("Fetched client metadata from %s", client_id)
-                        return dict[str, Any](metadata)
-                    logger.warning("Client metadata missing required fields: %s", client_id)
-                else:
-                    logger.warning("Client ID mismatch in metadata document: %s", client_id)
+        from app.core.http import get_general_client
+
+        client = get_general_client()
+        resp = await client.get(client_id, timeout=10.0, follow_redirects=False)
+        if resp.status_code == 200:
+            metadata = resp.json()
+            if metadata.get("client_id") == client_id:
+                if "redirect_uris" in metadata and "client_name" in metadata:
+                    logger.info("Fetched client metadata from %s", client_id)
+                    return dict[str, Any](metadata)
+                logger.warning("Client metadata missing required fields: %s", client_id)
+            else:
+                logger.warning("Client ID mismatch in metadata document: %s", client_id)
     except Exception as exc:
         logger.warning("Failed to fetch client metadata from %s: %s", client_id, exc)
 

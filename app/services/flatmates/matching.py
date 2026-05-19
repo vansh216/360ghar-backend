@@ -243,18 +243,37 @@ async def record_swipe(
 
             # --- SSE events for new match ---
             try:
-                from app.core.sse import sse_bus
+                from app.core.sse import SSE_SWIPE, sse_bus
 
-                for uid in (user_id, payload.target_user_id):
-                    if uid is not None:
-                        await sse_bus.emit(
-                            uid,
-                            {
-                                "type": "new_match",
-                                "match_id": match_id,
-                                "conversation_id": conversation_id,
-                            },
-                        )
+                assert payload.target_user_id is not None
+                await sse_bus.emit(
+                    user_id,
+                    {
+                        "type": SSE_SWIPE,
+                        "data": {
+                            "target_user_id": payload.target_user_id,
+                            "action": payload.action.value,
+                            "target_type": payload.target_type.value,
+                            "did_match": True,
+                            "match_id": match_id,
+                            "conversation_id": conversation_id,
+                        },
+                    },
+                )
+                await sse_bus.emit(
+                    payload.target_user_id,
+                    {
+                        "type": SSE_SWIPE,
+                        "data": {
+                            "target_user_id": user_id,
+                            "action": payload.action.value,
+                            "target_type": payload.target_type.value,
+                            "did_match": True,
+                            "match_id": match_id,
+                            "conversation_id": conversation_id,
+                        },
+                    },
+                )
             except Exception:  # noqa: BLE001
                 pass  # best-effort
 

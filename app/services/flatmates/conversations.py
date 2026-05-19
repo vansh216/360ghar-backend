@@ -11,10 +11,10 @@ from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import BadRequestException, NotFoundException
 from app.core.logging import get_logger
-from app.models.enums import ConversationSource, ConversationStatus, UserMatchStatus
+from app.models.enums import ConversationSource, ConversationStatus, MessageType, UserMatchStatus
 from app.models.social import MatchQnAAnswer, UserConversation, UserMatch, UserMessage
 from app.models.users import User
-from app.schemas.flatmates import MessageCreate, QnAAnswers
+from app.schemas.flatmates import ConversationCreate, MessageCreate, QnAAnswers
 from app.services.flatmates.helpers import (
     _build_peer_payload,
     _build_property_context,
@@ -59,6 +59,49 @@ async def _ensure_conversation(
     db.add(conversation)
     await db.flush()
     return conversation
+
+
+async def create_conversation_from_payload(
+    db: AsyncSession,
+    user_id: int,
+    payload: ConversationCreate,
+) -> dict[str, Any]:
+    """Create (or return existing) conversation between current user and a peer.
+
+    Optionally sends an initial message if ``payload.initial_message`` is provided.
+    """
+    if payload.peer_user_id == user_id:
+        raise BadRequestException(detail="Cannot create a conversation with yourself")
+
+    peer = await db.get(User, payload.peer_user_id)
+    if peer is None:
+        raise BadRequestException(detail="User not found")
+
+    conversation = await _ensure_conversation(
+        db,
+        user_id=user_id,
+        other_user_id=payload.peer_user_id,
+        created_by_user_id=user_id,
+        source=ConversationSource.profile_match,
+    )
+
+    if payload.initial_message and payload.initial_message.strip():
+        message = UserMessage(
+            conversation_id=conversation.id,
+            sender_id=user_id,
+            body=payload.initial_message.strip(),
+            message_type=MessageType.text,
+        )
+        db.add(message)
+        now = datetime.now(timezone.utc)
+        conversation.last_message_at = now
+        conversation.last_message_preview = payload.initial_message.strip()
+        await db.flush()
+        await db.refresh(message)
+    else:
+        await db.flush()
+
+    return await get_conversation_summary(db, conversation.id, user_id)
 
 
 async def _match_created_at(
@@ -315,14 +358,27 @@ async def send_message(
 
     # --- SSE events ---
     try:
-        from app.core.sse import sse_bus
+        from app.core.sse import SSE_MESSAGE, SSE_NOTIFICATION, sse_bus
 
         await sse_bus.emit(
             peer_id,
-            {"type": "new_message", "conversation_id": conversation.id, "sender_id": user_id, "message_id": message.id},
+            {
+                "type": SSE_MESSAGE,
+                "data": {
+                    "conversation_id": conversation.id,
+                    "message_id": message.id,
+                    "sender_id": user_id,
+                },
+            },
         )
         for uid in (user_id, peer_id):
-            await sse_bus.emit(uid, {"type": "conversation_updated", "conversation_id": conversation.id})
+            await sse_bus.emit(
+                uid,
+                {
+                    "type": SSE_NOTIFICATION,
+                    "data": {"conversation_id": conversation.id},
+                },
+            )
     except Exception:  # noqa: BLE001
         pass  # best-effort
 
@@ -371,9 +427,15 @@ async def mark_conversation_read(
 
     # --- SSE event to peer so their unread count refreshes ---
     try:
-        from app.core.sse import sse_bus
+        from app.core.sse import SSE_NOTIFICATION, sse_bus
 
-        await sse_bus.emit(peer_id, {"type": "conversation_updated", "conversation_id": conversation_id})
+        await sse_bus.emit(
+            peer_id,
+            {
+                "type": SSE_NOTIFICATION,
+                "data": {"conversation_id": conversation_id},
+            },
+        )
     except Exception:  # noqa: BLE001
         pass  # best-effort
 

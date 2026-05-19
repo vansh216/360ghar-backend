@@ -83,9 +83,7 @@ async def upload_scene_image(
                 image_info = image_processing.get_image_info(img=img, file_size=len(file_content))
 
                 # Generate thumbnail from the open image
-                rgb_img = img
-                if img.mode in ("RGBA", "P"):
-                    rgb_img = img.convert("RGB")  # type: ignore[assignment]
+                rgb_img, _ = image_processing._normalize_image_mode(img)
 
                 try:
                     thumbnail_bytes = _thumbnail_from_image(rgb_img, max_size=512)
@@ -275,14 +273,14 @@ async def process_existing_scene_image(
     Returns:
         Dict with thumbnail_url and metadata.
     """
-    import httpx
+    from app.core.http import get_general_client
 
     try:
         # Download the image
-        async with httpx.AsyncClient() as client:
-            response = await client.get(image_url, timeout=60)
-            response.raise_for_status()
-            file_content = response.content
+        client = get_general_client()
+        response = await client.get(image_url, timeout=60.0)
+        response.raise_for_status()
+        file_content = response.content
 
         # Get image info
         image_info = image_processing.get_image_info(file_content)

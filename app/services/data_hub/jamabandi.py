@@ -4,7 +4,6 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,10 +40,12 @@ class JamabandiScraper(BaseScraper):
 
     async def get_captcha_bytes(self) -> bytes:
         """Proxy CAPTCHA image from Jamabandi site."""
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(_CAPTCHA_URL)
-            resp.raise_for_status()
-            return resp.content
+        from app.core.http import get_scraper_client
+
+        client = get_scraper_client()
+        resp = await client.get(_CAPTCHA_URL, timeout=15.0)
+        resp.raise_for_status()
+        return resp.content
 
     async def lookup(
         self,
@@ -95,18 +96,20 @@ class JamabandiScraper(BaseScraper):
         self, tehsil: str, village: str, khasra_number: str, captcha_token: str
     ) -> dict | None:
         """Submit the land records form and parse the result."""
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            payload = {
-                "tehsil": tehsil,
-                "village": village,
-                "khasra": khasra_number,
-                "captcha": captcha_token,
-            }
-            resp = await client.post(
-                f"{_JAMABANDI_BASE}/land records/NakalRecord", data=payload
-            )
-            resp.raise_for_status()
-            return self._parse_nakal_html(resp.text, tehsil, village, khasra_number)
+        from app.core.http import get_scraper_client
+
+        client = get_scraper_client()
+        payload = {
+            "tehsil": tehsil,
+            "village": village,
+            "khasra": khasra_number,
+            "captcha": captcha_token,
+        }
+        resp = await client.post(
+            f"{_JAMABANDI_BASE}/land records/NakalRecord", data=payload, timeout=30.0
+        )
+        resp.raise_for_status()
+        return self._parse_nakal_html(resp.text, tehsil, village, khasra_number)
 
     def _parse_nakal_html(
         self, html: str, tehsil: str, village: str, khasra_number: str

@@ -34,6 +34,8 @@ uv run python scripts/validate_docs_contracts.py
 - `app/modules/` is reserved for future physical domain entrypoints. Do not recreate shim-only re-export packages; use the current concrete homes (`app/api`, `app/services`, `app/models`, `app/schemas`, `app/repositories`, `app/mcp`) until a domain is migrated.
 - Cross-cutting infrastructure belongs in `app/infrastructure/`, `app/core/`, `app/middleware/`, and `app/vector/`.
 - `app/infrastructure/` owns lifespan wiring (startup/shutdown orchestration), middleware registration, exception handlers, MCP HTTP app construction, and route mounting. `app/factory.py` is a thin composition root that delegates to `app/infrastructure/`.
+- `app/infrastructure/scheduler.py` provides a shared `AsyncIOScheduler` singleton. All background cron jobs (blog, notifications, vector sync, data hub) register on this single instance via `get_scheduler()`. Do not create per-module `AsyncIOScheduler` instances.
+- `app/core/http.py` provides shared `httpx.AsyncClient` singletons (`get_scraper_client()`, `get_blog_client()`, `get_general_client()`) for connection reuse. Do not create ephemeral `async with httpx.AsyncClient()` per request — use the shared clients with per-request `timeout=` overrides instead.
 - `app/shared/` is reserved for future physical shared packages. Current shared contracts and helpers remain in `app/core`, `app/schemas`, `app/utils`, and endpoint dependencies.
 - `app/config/` is a re-export package; `from app.config import settings` is the canonical import location (delegates to `app/core/config.py`).
 - AI provider abstraction lives in `app/services/ai/` with a factory (`get_ai_provider`) supporting Gemini and GLM providers. All AI features (vastu, tour AI, blog generation) go through this layer with automatic retries and fallback.
@@ -43,8 +45,9 @@ uv run python scripts/validate_docs_contracts.py
 - New REST endpoint modules must be routed through `app/api/api_v1/api.py`, covered by tests, and registered in `docs/repo-contract.json`.
 - New service modules must follow existing naming conventions, keep I/O async when touching the database, and be registered in `docs/repo-contract.json`.
 - New MCP tools, widget bindings, or AI-agent tool bridges must update the architecture and terminology docs when they add a new public surface or execution pattern.
-- New background jobs or schedulers must be wired through `app/infrastructure/lifespan.py` startup and documented in the architecture contract.
+- New background jobs or schedulers must be wired through `app/infrastructure/lifespan.py` startup, register their jobs on the shared scheduler from `app/infrastructure/scheduler.py`, and be documented in the architecture contract. Do not create new `AsyncIOScheduler` instances — use `get_scheduler()` to add jobs.
 - Do not add new dependencies without checking current upstream documentation and compatibility with Python 3.10+, FastAPI, SQLAlchemy 2.x, and Pydantic v2.
+- New outbound HTTP call sites must use the shared httpx clients from `app/core/http.py` (`get_scraper_client()`, `get_blog_client()`, `get_general_client()`) instead of creating ephemeral `async with httpx.AsyncClient()` per request. Use per-request `timeout=` overrides when the call needs a different timeout than the client default.
 
 ## Use Latest Versions & References
 - **Always use the latest stable versions** of packages, SDKs, AI models, API versions, protocol versions, and any external references. Never rely on cached or training-knowledge version numbers, model names, API signatures, or SDK methods — these change frequently and are often outdated.
@@ -89,6 +92,7 @@ All code must pass `uv run ruff check app/` before commit. The CI `lint` job enf
 - Any new service module or new nested service package
 - Any new MCP tool, widget bundle, or AI-agent tool bridge
 - Any new scheduler, background processing flow, or startup job
+- Any new shared httpx client domain (register in `app/core/http.py`)
 - Any new top-level runtime directory under `app/`, `tests/`, or `docs/`
 - Any new flatmates or social feature (models, schemas, endpoints, services)
 - Any new notification type registered in `NOTIFICATION_TYPES`
@@ -101,6 +105,7 @@ All code must pass `uv run ruff check app/` before commit. The CI `lint` job enf
 - New service domain
 - New MCP tool or widget
 - New background or scheduler flow
+- New shared httpx client domain
 - New flatmates or social feature
 - New notification type (must be added to `NOTIFICATION_TYPES` in `notification_config.py`)
 - New AI provider or vision model

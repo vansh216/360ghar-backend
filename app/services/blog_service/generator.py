@@ -1,7 +1,7 @@
+from __future__ import annotations
+
 import json
 from typing import Any
-
-import httpx
 
 from app.config import settings
 from app.core.exceptions import BaseAPIException, ExternalServiceError, ServiceUnavailableException
@@ -113,13 +113,15 @@ async def _perplexity_generate(topic: str) -> dict[str, str]:
         },
     }
 
-    async with httpx.AsyncClient(timeout=120) as client:  # Increased timeout for longer generation
-        resp = await client.post(url, headers=headers, json=payload)
-        if resp.status_code >= 400:
-            logger.error("Perplexity API error %s: %s", resp.status_code, resp.text)
-            raise ExternalServiceError(detail="Perplexity generation failed")
+    from app.core.http import get_blog_client
 
-        data = resp.json()
+    client = get_blog_client()
+    resp = await client.post(url, headers=headers, json=payload, timeout=120.0)
+    if resp.status_code >= 400:
+        logger.error("Perplexity API error %s: %s", resp.status_code, resp.text)
+        raise ExternalServiceError(detail="Perplexity generation failed")
+
+    data = resp.json()
 
     # Perplexity uses OpenAI-like schema; extract structured JSON content
     try:
@@ -174,12 +176,14 @@ async def _serpapi_image_search(query: str, count: int = 5) -> list[str]:
         "safe": "active",
     }
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(settings.SERPAPI_SEARCH_ENDPOINT, params=params)
-        if resp.status_code >= 400:
-            logger.error("SerpAPI Google Images error %s: %s", resp.status_code, resp.text)
-            return []
-        data = resp.json()
+    from app.core.http import get_blog_client
+
+    client = get_blog_client()
+    resp = await client.get(settings.SERPAPI_SEARCH_ENDPOINT, params=params, timeout=30.0)
+    if resp.status_code >= 400:
+        logger.error("SerpAPI Google Images error %s: %s", resp.status_code, resp.text)
+        return []
+    data = resp.json()
 
     # SerpAPI Google Images returns results under "images_results"
     values = data.get("images_results") or []
@@ -286,12 +290,14 @@ async def generate_bulk_blogs(db, *, count: int, actor) -> list[dict[str, Any]]:
         },
     }
 
-    async with httpx.AsyncClient(timeout=45) as client:
-        resp = await client.post(url, headers=headers, json=payload)
-        if resp.status_code >= 400:
-            logger.error("Perplexity topic generation error %s: %s", resp.status_code, resp.text)
-            raise ExternalServiceError(detail="Perplexity topic generation failed")
-        data = resp.json()
+    from app.core.http import get_blog_client
+
+    client = get_blog_client()
+    resp = await client.post(url, headers=headers, json=payload, timeout=45.0)
+    if resp.status_code >= 400:
+        logger.error("Perplexity topic generation error %s: %s", resp.status_code, resp.text)
+        raise ExternalServiceError(detail="Perplexity topic generation failed")
+    data = resp.json()
 
     try:
         content = data["choices"][0]["message"]["content"]

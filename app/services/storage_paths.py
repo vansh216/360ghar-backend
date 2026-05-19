@@ -200,7 +200,7 @@ def parse_user_id_from_path(path: str) -> int | None:
     Extract user ID from a storage path.
 
     Args:
-        path: Storage path (e.g., "users/123/avatars/uuid.jpg")
+        path: Storage path (e.g., "users/123/avatars/uuid.webp")
 
     Returns:
         User ID if path is user-scoped, None otherwise

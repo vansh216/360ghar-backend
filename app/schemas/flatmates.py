@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.enums import (
     ConversationSource,
@@ -200,13 +200,13 @@ class MessageOut(BaseModel):
     message_type: MessageType
     metadata: dict[str, Any] | None = Field(
         default=None,
-        validation_alias=AliasChoices("metadata", "message_metadata"),
+        validation_alias="message_metadata",
         serialization_alias="metadata",
     )
     read_at: datetime | None = None
     created_at: datetime
 
-    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MatchSummary(BaseModel):
@@ -352,6 +352,32 @@ class QnAAnswers(BaseModel):
             if idx < 0 or idx > 2:
                 raise ValueError(f"Answer index must be between 0 and 2, got {idx}")
         return self
+
+
+class SwipeDeckResponse(BaseModel):
+    """Paginated swipe deck envelope."""
+    profiles: list[FlatmatesPeer]
+    total: int
+
+
+class MessageListResponse(BaseModel):
+    """Paginated message list envelope."""
+    messages: list[MessageOut]
+    total: int
+    has_more: bool
+
+
+class BlockedUserOut(BaseModel):
+    """Block record with nested peer data for the blocked user."""
+    id: int
+    blocked_user: FlatmatesPeer
+    created_at: datetime | None = None
+
+
+class ConversationCreate(BaseModel):
+    """Payload for creating (or retrieving) a conversation with a peer."""
+    peer_user_id: int
+    initial_message: str | None = None
 
 
 class ListingModerationAction(BaseModel):

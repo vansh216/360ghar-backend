@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter
+from fastapi.responses import RedirectResponse
 
 from app.api.api_v1.endpoints import (
     # AI Agent
@@ -47,6 +48,13 @@ from app.api.api_v1.endpoints import (
 )
 
 api_router = APIRouter()
+
+
+@api_router.get("/health", include_in_schema=False)
+async def api_v1_health_redirect():
+    """Redirect /api/v1/health to the root /health endpoint."""
+    return RedirectResponse(url="/health", status_code=307)
+
 
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(properties.router, prefix="/properties", tags=["properties"])

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import sentry_sdk
-from fastapi import Depends, Header, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import verify_supabase_token
-from app.core.database import get_db
+from app.core.database import get_bg_session_factory, get_db
 from app.core.logging import get_logger
 from app.models.enums import UserRole
 from app.models.users import User
@@ -121,6 +121,87 @@ async def get_current_active_user(
             },
         )
     return current_user
+
+
+async def get_current_user_sse(
+    request: Request,
+    authorization: str | None = Header(None),
+    token: str | None = Query(None),
+) -> User:
+    """Resolve the current user from Bearer header or ``?token=`` query param.
+
+    Browser ``EventSource`` cannot set custom headers, so SSE consumers pass
+    the access token as a query parameter instead.  This dependency checks the
+    query param first and falls back to the standard ``Authorization`` header.
+
+    Uses a short-lived background-pool session instead of ``Depends(get_db)``
+    so the main connection pool is not exhausted by long-running SSE streams.
+    The session is closed immediately after authentication completes.
+    """
+    resolved_token: str | None = token
+
+    if not resolved_token:
+        resolved_token = _parse_bearer_token(authorization)
+
+    try:
+        supabase_user_data = await verify_supabase_token(resolved_token)
+        if not supabase_user_data:
+            token_suffix = resolved_token[-8:] if len(resolved_token) > 8 else resolved_token
+            logger.warning(
+                "Invalid or expired token (suffix=%s)",
+                token_suffix,
+                extra={"reason": "token_invalid_or_expired", "token_suffix": token_suffix},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "code": "TOKEN_INVALID",
+                    "message": "Invalid or expired token",
+                },
+            )
+
+        session_factory = get_bg_session_factory()
+        async with session_factory() as db:
+            try:
+                db_user = await get_or_create_user_from_supabase(db, supabase_user_data)
+                db.expunge(db_user)
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+        request.state.user_id = getattr(db_user, "id", None)
+        sentry_sdk.set_user({
+            "id": str(getattr(db_user, "id", None)),
+            "email": getattr(db_user, "email", None),
+            "username": getattr(db_user, "phone", None),
+        })
+        logger.debug("SSE user authenticated successfully", extra={"user_id": getattr(db_user, "id", None)})
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "SSE authentication error: %s",
+            exc,
+            exc_info=True,
+            extra={"reason": "authentication_exception", "error_type": type(exc).__name__},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "AUTHENTICATION_FAILED",
+                "message": "Authentication failed",
+            },
+        ) from exc
+
+    if not getattr(db_user, "is_active", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "USER_INACTIVE",
+                "message": "Inactive user",
+            },
+        )
+    return db_user
 
 
 async def get_current_user_optional(

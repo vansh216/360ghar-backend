@@ -166,27 +166,34 @@ async def _call_gemini(url: str, payload: dict[str, Any]) -> dict[str, Any]:
         reraise=True,
     )
     async def _do_post() -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            t_start = time.monotonic()
-            resp = await client.post(url, json=payload, headers={"Content-Type": "application/json"})
-            elapsed_ms = (time.monotonic() - t_start) * 1000
-            logger.info(
-                "Gemini image API call completed",
-                extra={"duration_ms": round(elapsed_ms, 1), "status": resp.status_code},
+        from app.core.http import get_general_client
+
+        client = get_general_client()
+        t_start = time.monotonic()
+        resp = await client.post(
+            url,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=float(_TIMEOUT),
+        )
+        elapsed_ms = (time.monotonic() - t_start) * 1000
+        logger.info(
+            "Gemini image API call completed",
+            extra={"duration_ms": round(elapsed_ms, 1), "status": resp.status_code},
+        )
+
+        if resp.status_code in _RETRYABLE_STATUS_CODES:
+            raise httpx.HTTPStatusError(
+                f"Retryable HTTP {resp.status_code}",
+                request=resp.request,
+                response=resp,
             )
 
-            if resp.status_code in _RETRYABLE_STATUS_CODES:
-                raise httpx.HTTPStatusError(
-                    f"Retryable HTTP {resp.status_code}",
-                    request=resp.request,
-                    response=resp,
-                )
+        if resp.status_code >= 400:
+            body = resp.text[:1000]
+            raise RuntimeError(f"Gemini API error {resp.status_code}: {body}")
 
-            if resp.status_code >= 400:
-                body = resp.text[:1000]
-                raise RuntimeError(f"Gemini API error {resp.status_code}: {body}")
-
-            return resp.json()
+        return resp.json()
 
     return await _do_post()
 

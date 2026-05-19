@@ -34,7 +34,7 @@ class RequestLoggingMiddleware:
             query = scope.get("query_string", b"").decode("utf-8", errors="ignore")
 
             full_path = f"{self.prefix}{path}" if self.prefix else path
-            logger.info(
+            logger.debug(
                 "Incoming request",
                 extra={
                     "method": method,

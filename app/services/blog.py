@@ -107,8 +107,9 @@ async def _get_or_create_categories(db: AsyncSession, identifiers: list[str]) ->
     if not names_or_slugs:
         return []
 
+    slugified = [_slugify(x) for x in names_or_slugs]
     stmt = select(BlogCategory).where(
-        or_(BlogCategory.slug.in_(names_or_slugs), BlogCategory.name.in_(names_or_slugs))
+        or_(BlogCategory.slug.in_(list(dict.fromkeys(names_or_slugs + slugified))), BlogCategory.name.in_(names_or_slugs))
     )
     result = await db.execute(stmt)
     existing = {c.slug: c for c in result.scalars().all()}
@@ -134,8 +135,9 @@ async def _get_or_create_tags(db: AsyncSession, identifiers: list[str]) -> list[
     if not names_or_slugs:
         return []
 
+    slugified = [_slugify(x) for x in names_or_slugs]
     stmt = select(BlogTag).where(
-        or_(BlogTag.slug.in_(names_or_slugs), BlogTag.name.in_(names_or_slugs))
+        or_(BlogTag.slug.in_(list(dict.fromkeys(names_or_slugs + slugified))), BlogTag.name.in_(names_or_slugs))
     )
     result = await db.execute(stmt)
     existing = {t.slug: t for t in result.scalars().all()}

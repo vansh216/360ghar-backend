@@ -1,0 +1,4026 @@
+openapi: 3.1.0
+info:
+  title: 360 Flatmates API
+  description: |
+    Complete API for the 360 Flatmates web platform — a swipe-based flatmate-finding app for India's young professionals.
+
+    ## Authentication
+    All endpoints require authentication via Bearer token in the `Authorization` header, unless marked as public.
+    Tokens are obtained via Supabase Auth (Phone OTP + Password).
+
+    ## User Modes
+    - **room_poster** — Has a flat, wants to rent out a spare room
+    - **co_hunter** — Looking for people to flat-search with
+    - **open_to_both** — Flexible, open to either
+
+    ## Base URL
+    `/api/v1`
+  version: 1.0.0
+  contact:
+    name: 360 Ghar
+    url: https://360ghar.com
+  license:
+    name: Confidential
+    url: https://360ghar.com
+
+servers:
+  - url: https://api.360ghar.com/api/v1
+    description: Production
+  - url: http://localhost:8000/api/v1
+    description: Local Development
+
+tags:
+  - name: Auth
+    description: User authentication and session management
+  - name: Bootstrap
+    description: Initial data loading after authentication
+  - name: Profiles
+    description: Flatmate profile CRUD and discovery
+  - name: Catalogs
+    description: Server-driven business metadata
+  - name: Swipes
+    description: Swipe actions and compatibility matching
+  - name: Likes
+    description: Incoming likes and match management
+  - name: Matches
+    description: Active matches and unmatching
+  - name: Conversations
+    description: Chat conversations and messages
+  - name: Visits
+    description: Flatmate meet scheduling and management
+  - name: Listings
+    description: Property listing CRUD and discovery
+  - name: Notifications
+    description: Push and in-app notifications
+  - name: Blocks & Reports
+    description: User safety, blocking, and reporting
+  - name: Interactions
+    description: Profile views and society tag voting
+  - name: SSE
+    description: Server-sent events for real-time updates
+  - name: Admin Moderation
+    description: Admin-only listing and report moderation
+  - name: Web Discovery
+    description: Web-optimized search, saved searches, and alerts
+
+paths:
+  # ===================== AUTH =====================
+  /users/me:
+    get:
+      tags: [Auth]
+      summary: Get current user
+      description: Validate the authenticated user exists and return basic user info.
+      operationId: getCurrentUser
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current user details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /users/location:
+    get:
+      tags: [Auth]
+      summary: Get user location
+      description: Returns the current user's location data.
+      operationId: getUserLocation
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: User location
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserLocation'
+
+  # ===================== BOOTSTRAP =====================
+  /flatmates/bootstrap:
+    get:
+      tags: [Bootstrap]
+      summary: Bootstrap data
+      description: Load profile, catalogs, and activity counts after authentication.
+      operationId: getFlatmatesBootstrap
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Bootstrap data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlatmatesBootstrap'
+
+  # ===================== CATALOGS =====================
+  /flatmates/catalogs:
+    get:
+      tags: [Catalogs]
+      summary: Get business catalogs
+      description: Server-driven business metadata (modes, timelines, quiz dimensions, vibe tags, report reasons, icebreakers, room types, furnishing options, etc.).
+      operationId: getFlatmatesCatalogs
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of catalog entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CatalogEntry'
+
+  # ===================== PROFILES =====================
+  /flatmates/profile:
+    get:
+      tags: [Profiles]
+      summary: Get my flatmate profile
+      description: Fetch the authenticated user's flatmate profile.
+      operationId: getMyFlatmatesProfile
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Flatmate profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlatmatesProfile'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Profiles]
+      summary: Update my flatmate profile
+      description: Update the authenticated user's flatmate profile fields.
+      operationId: updateMyFlatmatesProfile
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FlatmatesProfileUpdate'
+      responses:
+        '200':
+          description: Updated flatmate profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlatmatesProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /flatmates/profiles:
+    get:
+      tags: [Profiles]
+      summary: Discover profiles
+      description: Fetch discoverable peer profiles for the swipe deck. Applies deal-breaker (non-negotiables) and discovery filtering.
+      operationId: discoverProfiles
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: city
+          in: query
+          schema:
+            type: string
+          description: Filter by city
+        - name: budget_min
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+          description: Minimum budget
+        - name: budget_max
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+          description: Maximum budget
+        - name: move_in
+          in: query
+          schema:
+            type: string
+            enum: [immediate, this_month, next_month, flexible]
+          description: Move-in timeline filter
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: Number of profiles to return
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: Pagination offset
+      responses:
+        '200':
+          description: List of discoverable peer profiles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FlatmatesPeer'
+
+  # ===================== SWIPES =====================
+  /flatmates/swipes:
+    post:
+      tags: [Swipes]
+      summary: Record a swipe
+      description: |
+        Record a swipe action (like, pass, or super-like) on a property or user profile.
+        - For property swipes: set `target_type=property` and provide `property_id`
+        - For user swipes: set `target_type=user` and provide `target_user_id`
+        - Mutual likes automatically create a match and conversation.
+        - Super-likes are capped at 3 per day.
+      operationId: recordSwipe
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SwipeRequest'
+      responses:
+        '200':
+          description: Swipe result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SwipeResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          description: Super-like daily limit exceeded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: Super-like daily limit reached
+
+  # ===================== LIKES =====================
+  /flatmates/likes:
+    get:
+      tags: [Likes]
+      summary: Get incoming likes
+      description: Fetch profiles that have swiped right on the current user but haven't been answered yet.
+      operationId: getIncomingLikes
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: List of incoming likes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IncomingLikeSummary'
+
+  # ===================== MATCHES =====================
+  /flatmates/matches:
+    get:
+      tags: [Matches]
+      summary: Get my matches
+      description: Fetch all active matches for the current user.
+      operationId: getMyMatches
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of matches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MatchSummary'
+
+  /flatmates/matches/{match_id}/unmatch:
+    put:
+      tags: [Matches]
+      summary: Unmatch
+      description: Unmatch a specific match, closing the associated conversation.
+      operationId: unmatch
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: match_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Successfully unmatched
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Match removed successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ===================== CONVERSATIONS =====================
+  /flatmates/conversations:
+    get:
+      tags: [Conversations]
+      summary: List conversations
+      description: Fetch all conversations for the current user, ordered by last message timestamp.
+      operationId: listConversations
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of conversation summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ConversationSummary'
+
+  /flatmates/conversations/{conversation_id}:
+    get:
+      tags: [Conversations]
+      summary: Get conversation detail
+      description: Fetch full conversation summary including peer info, unread count, and Q&A state.
+      operationId: getConversationDetail
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Conversation detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationSummary'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /flatmates/conversations/{conversation_id}/messages:
+    get:
+      tags: [Conversations]
+      summary: Get conversation messages
+      description: Fetch messages for a conversation. Automatically marks unread messages as read.
+      operationId: getConversationMessages
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: before
+          in: query
+          schema:
+            type: integer
+          description: Fetch messages before this message ID (for pagination)
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          description: Number of messages to return
+      responses:
+        '200':
+          description: List of messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MessageOut'
+
+    post:
+      tags: [Conversations]
+      summary: Send a message
+      description: Send a text, image, or visit_request message to a conversation.
+      operationId: sendMessage
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageCreate'
+      responses:
+        '201':
+          description: Message sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageOut'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /flatmates/conversations/{conversation_id}/mark-read:
+    post:
+      tags: [Conversations]
+      summary: Mark conversation as read
+      description: Mark all peer messages in a conversation as read.
+      operationId: markConversationRead
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Marked as read
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Conversation marked as read
+
+  /flatmates/conversations/{conversation_id}/qna:
+    post:
+      tags: [Conversations]
+      summary: Save Q&A answers
+      description: Save guided Q&A answers for a match. Answers are visible to both parties.
+      operationId: saveQnAAnswers
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QnAAnswers'
+      responses:
+        '200':
+          description: Q&A answers saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Q&A answers saved successfully
+
+  # ===================== VISITS =====================
+  /visits:
+    post:
+      tags: [Visits]
+      summary: Schedule a visit
+      description: |
+        Schedule a flatmate meet or property tour.
+        For flatmate meets, set `visit_context=flatmate_meet` and provide `conversation_id` and `counterparty_user_id`.
+      operationId: scheduleVisit
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VisitCreate'
+      responses:
+        '201':
+          description: Visit scheduled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Visit'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+    get:
+      tags: [Visits]
+      summary: Get my visits
+      description: Fetch all visits for the current user.
+      operationId: getMyVisits
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of visits
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VisitList'
+
+  /visits/upcoming:
+    get:
+      tags: [Visits]
+      summary: Get upcoming visits
+      operationId: getUpcomingVisits
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Upcoming visits
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VisitSlice'
+
+  /visits/past:
+    get:
+      tags: [Visits]
+      summary: Get past visits
+      operationId: getPastVisits
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Past visits
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VisitSlice'
+
+  /visits/{visit_id}:
+    get:
+      tags: [Visits]
+      summary: Get visit details
+      operationId: getVisitDetails
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: visit_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Visit details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Visit'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Visits]
+      summary: Update visit
+      description: Update visit status or scheduled date. Used for confirm/reschedule/cancel actions.
+      operationId: updateVisit
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: visit_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VisitUpdate'
+      responses:
+        '200':
+          description: Updated visit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Visit'
+
+  /visits/{visit_id}/reschedule:
+    post:
+      tags: [Visits]
+      summary: Reschedule a visit
+      operationId: rescheduleVisit
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: visit_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VisitReschedule'
+      responses:
+        '200':
+          description: Rescheduled visit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Visit'
+
+  /visits/{visit_id}/cancel:
+    post:
+      tags: [Visits]
+      summary: Cancel a visit
+      operationId: cancelVisit
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: visit_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VisitCancel'
+      responses:
+        '200':
+          description: Cancelled visit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Visit'
+
+  /visits/{visit_id}/complete:
+    post:
+      tags: [Visits]
+      summary: Mark visit as completed
+      description: Mark a visit as completed with optional notes and feedback.
+      operationId: completeVisit
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: visit_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VisitComplete'
+      responses:
+        '200':
+          description: Completed visit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Visit'
+
+  # ===================== LISTINGS =====================
+  /properties:
+    post:
+      tags: [Listings]
+      summary: Create a listing
+      description: |
+        Create a new property listing. For flatmate listings, set `property_type=flatmate` and `purpose=rent`.
+        The listing enters manual review (24-hour SLA) before going live.
+        AI pre-screening runs automatically before human review.
+      operationId: createListing
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PropertyCreate'
+      responses:
+        '201':
+          description: Listing created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Property'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+    get:
+      tags: [Listings]
+      summary: Discover listings
+      description: |
+        Discover listings with comprehensive filtering.
+        For flatmate listings, filter with `property_type=flatmate` and `purpose=rent`.
+        Supports location-based search, text search, semantic search, and 30+ filter parameters.
+      operationId: discoverListings
+      security: []
+      parameters:
+        - name: property_type
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [flatmate, pg]
+          description: Filter by property type
+        - name: purpose
+          in: query
+          schema:
+            type: string
+            enum: [rent]
+          description: Filter by purpose
+        - name: lat
+          in: query
+          schema:
+            type: number
+            format: float
+          description: Latitude for location-based search
+        - name: lng
+          in: query
+          schema:
+            type: number
+            format: float
+          description: Longitude for location-based search
+        - name: radius
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 5
+          description: Search radius in km
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: Search query for text or semantic search
+        - name: semantic_search
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Enable semantic vector similarity search
+        - name: city
+          in: query
+          schema:
+            type: string
+        - name: locality
+          in: query
+          schema:
+            type: string
+        - name: price_min
+          in: query
+          schema:
+            type: number
+            minimum: 0
+        - name: price_max
+          in: query
+          schema:
+            type: number
+            maximum: 1000000000
+        - name: bedrooms_min
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+        - name: bedrooms_max
+          in: query
+          schema:
+            type: integer
+            maximum: 20
+        - name: sharing_type
+          in: query
+          schema:
+            type: string
+            enum: [private_room, shared_room, master_bedroom, entire_flat]
+        - name: gender_preference
+          in: query
+          schema:
+            type: string
+            enum: [male, female, any]
+        - name: move_in
+          in: query
+          schema:
+            type: string
+            enum: [immediate, this_month, next_month, flexible]
+          description: Move-in timeline filter
+        - name: available_from
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Minimum availability date (YYYY-MM-DD)
+        - name: amenities
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: features
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: sort_by
+          in: query
+          schema:
+            type: string
+            enum: [distance, price_low, price_high, newest, popular, relevance]
+            default: newest
+        - name: exclude_swiped
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Exclude properties already swiped by the authenticated user
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Paginated listings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnifiedPropertyResponse'
+
+  /properties/semantic-search:
+    get:
+      tags: [Listings]
+      summary: Semantic property search
+      description: Perform semantic (vector-powered) property search combining vector similarity with traditional filters.
+      operationId: semanticSearchListings
+      security: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query (required for semantic search)
+        - name: property_type
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [flatmate, pg]
+        - name: city
+          in: query
+          schema:
+            type: string
+        - name: locality
+          in: query
+          schema:
+            type: string
+        - name: price_min
+          in: query
+          schema:
+            type: number
+            minimum: 0
+        - name: price_max
+          in: query
+          schema:
+            type: number
+            maximum: 1000000000
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Paginated semantic search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnifiedPropertyResponse'
+        '400':
+          description: Search query required
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: A search query (q) is required for semantic search
+
+  /properties/recommendations:
+    get:
+      tags: [Listings]
+      summary: Get property recommendations
+      description: |
+        Get property recommendations.
+        - With authentication: Personalized recommendations based on user preferences and swipes
+        - Without authentication: Popular properties based on likes and recency
+      operationId: getPropertyRecommendations
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: Recommended properties
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Property'
+
+  /properties/me:
+    get:
+      tags: [Listings]
+      summary: Get my listings
+      description: List all listings owned by the current user.
+      operationId: getMyListings
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: User's listings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Property'
+
+  /properties/{property_id}:
+    get:
+      tags: [Listings]
+      summary: Get listing details
+      description: |
+        Get full property details. For flatmate listings, non-live listings are only visible to the owner or admins.
+        Enriched with user-specific context (liked status, visit info) when authenticated.
+      operationId: getListingDetails
+      security: []
+      parameters:
+        - name: property_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Property details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Property'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Listings]
+      summary: Update a listing
+      description: |
+        Update a listing. Owners can update their own listings.
+        To pause/resume a listing, update `listing_preferences.moderation_status`.
+      operationId: updateListing
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: property_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PropertyUpdate'
+      responses:
+        '200':
+          description: Updated listing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Property'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Listings]
+      summary: Delete a listing
+      operationId: deleteListing
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: property_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Listing deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Property deleted successfully
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ===================== NOTIFICATIONS =====================
+  /flatmates/notifications:
+    get:
+      tags: [Notifications]
+      summary: Get notifications
+      description: Fetch all notifications for the current user.
+      operationId: getFlatmatesNotifications
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of notifications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FlatmatesNotificationOut'
+
+    put:
+      tags: [Notifications]
+      summary: Mark all notifications as read
+      operationId: markAllNotificationsRead
+      security:
+        - BearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FlatmatesNotificationUpdate'
+      responses:
+        '200':
+          description: All notifications marked as read
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: All notifications marked as read
+
+  /flatmates/notifications/{notification_id}:
+    put:
+      tags: [Notifications]
+      summary: Mark notification as read
+      operationId: markNotificationRead
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: notification_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FlatmatesNotificationUpdate'
+      responses:
+        '200':
+          description: Notification marked as read
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Notification marked as read
+
+  /notifications/devices/register:
+    post:
+      tags: [Notifications]
+      summary: Register FCM device
+      description: Register a Firebase Cloud Messaging device token for push notifications.
+      operationId: registerFcmDevice
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [device_token]
+              properties:
+                device_token:
+                  type: string
+                  description: FCM device token
+                platform:
+                  type: string
+                  enum: [ios, android, web]
+                  description: Device platform
+      responses:
+        '200':
+          description: Device registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Device registered successfully
+
+  /notifications/devices/unregister:
+    post:
+      tags: [Notifications]
+      summary: Unregister FCM device
+      description: Unregister a Firebase Cloud Messaging device token.
+      operationId: unregisterFcmDevice
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [device_token]
+              properties:
+                device_token:
+                  type: string
+                  description: FCM device token to unregister
+      responses:
+        '200':
+          description: Device unregistered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Device unregistered successfully
+
+  # ===================== BLOCKS & REPORTS =====================
+  /flatmates/blocks:
+    get:
+      tags: [Blocks & Reports]
+      summary: Get blocked users
+      description: List all users blocked by the current user.
+      operationId: getBlockedUsers
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of blocked users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                    blocker_user_id:
+                      type: integer
+                    blocked_user_id:
+                      type: integer
+                    created_at:
+                      type: string
+                      format: date-time
+                    blocked_user:
+                      $ref: '#/components/schemas/FlatmatesPeer'
+
+    post:
+      tags: [Blocks & Reports]
+      summary: Block a user
+      description: |
+        Block a user. This closes any active conversation and prevents future matching.
+        Set `unmatch_only=true` to unmatch without blocking.
+      operationId: blockUser
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BlockCreate'
+      responses:
+        '200':
+          description: User blocked
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/BlockOut'
+                  - type: object
+                    properties:
+                      message:
+                        type: string
+                        example: Users unmatched successfully
+
+  /flatmates/blocks/{blocked_user_id}:
+    delete:
+      tags: [Blocks & Reports]
+      summary: Unblock a user
+      operationId: unblockUser
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: blocked_user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: User unblocked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: User unblocked successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /flatmates/reports:
+    post:
+      tags: [Blocks & Reports]
+      summary: Report a user
+      description: |
+        Report a user for spam, fake profile, abuse, inappropriate content, or other reasons.
+        Profiles with 3+ distinct active reports are auto-paused pending admin review.
+      operationId: reportUser
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportCreate'
+      responses:
+        '201':
+          description: Report created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportOut'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # ===================== INTERACTIONS =====================
+  /flatmates/profile-views:
+    post:
+      tags: [Interactions]
+      summary: Record profile view
+      description: |
+        Record a profile view event with duration and scroll depth.
+        Data-only tracking for V2 smart recommendations.
+      operationId: recordProfileView
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileViewEventCreate'
+      responses:
+        '200':
+          description: Profile view recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileViewEventOut'
+
+  /flatmates/listings/{listing_id}/society-tags/votes:
+    post:
+      tags: [Interactions]
+      summary: Vote on society tag
+      description: |
+        Vote up or down on a society tag for a listing.
+        Tags with 3+ downvotes are flagged as community disputed.
+      operationId: voteSocietyTag
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: listing_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SocietyTagVoteCreate'
+      responses:
+        '200':
+          description: Vote recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SocietyTagVoteOut'
+
+  # ===================== SSE =====================
+  /flatmates/sse:
+    get:
+      tags: [SSE]
+      summary: SSE event stream
+      description: |
+        Server-sent events stream for real-time flatmates updates.
+        Event types: `new_match`, `new_message`, `conversation_updated`, `visit_updated`, `listing_status_changed`, `new_notification`.
+      operationId: flatmatesSse
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '503':
+          description: Too many subscribers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: Too many real-time subscribers. Please retry shortly.
+
+  # ===================== ADMIN MODERATION =====================
+  /flatmates/moderation/listings:
+    get:
+      tags: [Admin Moderation]
+      summary: Get listings for moderation
+      description: |
+        Get listings pending moderation review. Requires admin role.
+        Auto-pauses expired listings before returning results.
+      operationId: getPendingListings
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            default: pending_review
+          description: Filter by moderation status
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Paginated listings for moderation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  listings:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FlatmateListingAdmin'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /flatmates/moderation/listings/{listing_id}:
+    put:
+      tags: [Admin Moderation]
+      summary: Moderate a listing
+      description: |
+        Moderate a listing: approve, reject, or request edit. Requires admin role.
+        On first approval, a 24-hour launch boost is automatically applied.
+      operationId: moderateListing
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: listing_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListingModerationAction'
+      responses:
+        '200':
+          description: Moderation action applied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  listing_id:
+                    type: integer
+                  action:
+                    type: string
+                    enum: [approve, reject, request_edit]
+                  status:
+                    type: string
+                  reason:
+                    type: string
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /flatmates/moderation/reports:
+    get:
+      tags: [Admin Moderation]
+      summary: Get reports for moderation
+      description: Get user reports pending review. Requires admin role.
+      operationId: getPendingReports
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            default: open
+          description: Filter by report status
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Paginated reports for moderation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reports:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReportAdmin'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /flatmates/moderation/reports/{report_id}:
+    put:
+      tags: [Admin Moderation]
+      summary: Moderate a report
+      description: |
+        Moderate a user report: dismiss, warn user, suspend user, or escalate. Requires admin role.
+        Suspension deactivates the reported user's account.
+      operationId: moderateReport
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: report_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportModerationAction'
+      responses:
+        '200':
+          description: Moderation action applied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  report_id:
+                    type: integer
+                  action:
+                    type: string
+                    enum: [dismiss, warn_user, suspend_user, escalate]
+                  status:
+                    type: string
+                  notes:
+                    type: string
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /flatmates/moderation/prescreen/{listing_id}:
+    post:
+      tags: [Admin Moderation]
+      summary: Pre-screen a listing
+      description: |
+        Run deterministic AI pre-screening for a flatmates listing.
+        Checks: photos present, required fields, pricing anomalies, spam keywords.
+        Requires admin role.
+      operationId: prescreenListing
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: listing_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Pre-screen result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  listing_id:
+                    type: integer
+                  prescreen_result:
+                    type: object
+                  prescreen_flags:
+                    type: array
+                    items:
+                      type: string
+                  prescreen_reason:
+                    type: string
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ===================== WEB DISCOVERY =====================
+  /flatmates/web/search:
+    get:
+      tags: [Web Discovery]
+      summary: Web-optimized search
+      description: |
+        Comprehensive search endpoint optimized for web browsing.
+        Combines listing and profile search with advanced filters, saved search support, and relevance scoring.
+      operationId: webSearch
+      security: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: Search query (locality, society name, or free-text)
+        - name: search_type
+          in: query
+          schema:
+            type: string
+            enum: [listings, profiles, all]
+            default: listings
+          description: Type of search
+        - name: lat
+          in: query
+          schema:
+            type: number
+            format: float
+        - name: lng
+          in: query
+          schema:
+            type: number
+            format: float
+        - name: radius
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 5
+          description: Search radius in km
+        - name: property_type
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [flatmate, pg]
+        - name: purpose
+          in: query
+          schema:
+            type: string
+            enum: [rent]
+        - name: city
+          in: query
+          schema:
+            type: string
+        - name: locality
+          in: query
+          schema:
+            type: string
+        - name: sub_locality
+          in: query
+          schema:
+            type: string
+        - name: price_min
+          in: query
+          schema:
+            type: number
+            minimum: 0
+        - name: price_max
+          in: query
+          schema:
+            type: number
+            maximum: 1000000000
+        - name: bedrooms_min
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+        - name: bedrooms_max
+          in: query
+          schema:
+            type: integer
+            maximum: 20
+        - name: sharing_type
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [private_room, shared_room, master_bedroom, entire_flat]
+        - name: gender_preference
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [male, female, any]
+        - name: move_in
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [immediate, this_month, next_month, flexible]
+        - name: available_from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: amenities
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: features
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: society_type
+          in: query
+          schema:
+            type: string
+            enum: [gated, independent, co_living, pg]
+        - name: society_vibe_tags
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: sort_by
+          in: query
+          schema:
+            type: string
+            enum: [distance, price_low, price_high, newest, popular, relevance, match_percentage]
+            default: newest
+        - name: semantic_search
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - name: exclude_swiped
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebSearchResponse'
+
+  /flatmates/web/saved-searches:
+    get:
+      tags: [Web Discovery]
+      summary: Get saved searches
+      description: Fetch all saved searches for the current user.
+      operationId: getSavedSearches
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Saved searches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SavedSearch'
+
+    post:
+      tags: [Web Discovery]
+      summary: Create saved search
+      description: Save a search configuration for later use and alerts.
+      operationId: createSavedSearch
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SavedSearchCreate'
+      responses:
+        '201':
+          description: Saved search created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedSearch'
+
+  /flatmates/web/saved-searches/{saved_search_id}:
+    get:
+      tags: [Web Discovery]
+      summary: Get saved search
+      operationId: getSavedSearch
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: saved_search_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Saved search details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedSearch'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Web Discovery]
+      summary: Update saved search
+      operationId: updateSavedSearch
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: saved_search_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SavedSearchUpdate'
+      responses:
+        '200':
+          description: Saved search updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedSearch'
+
+    delete:
+      tags: [Web Discovery]
+      summary: Delete saved search
+      operationId: deleteSavedSearch
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: saved_search_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Saved search deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Saved search deleted successfully
+
+  /flatmates/web/saved-searches/{saved_search_id}/run:
+    post:
+      tags: [Web Discovery]
+      summary: Run saved search
+      description: Execute a saved search and return current results.
+      operationId: runSavedSearch
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: saved_search_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Saved search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebSearchResponse'
+
+  /flatmates/web/alerts:
+    get:
+      tags: [Web Discovery]
+      summary: Get search alerts
+      description: Fetch all active search alerts for the current user.
+      operationId: getSearchAlerts
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Search alerts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SearchAlert'
+
+    post:
+      tags: [Web Discovery]
+      summary: Create search alert
+      description: Create an email/push alert for new listings matching saved search criteria.
+      operationId: createSearchAlert
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchAlertCreate'
+      responses:
+        '201':
+          description: Search alert created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchAlert'
+
+  /flatmates/web/alerts/{alert_id}:
+    put:
+      tags: [Web Discovery]
+      summary: Update search alert
+      operationId: updateSearchAlert
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: alert_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchAlertUpdate'
+      responses:
+        '200':
+          description: Search alert updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchAlert'
+
+    delete:
+      tags: [Web Discovery]
+      summary: Delete search alert
+      operationId: deleteSearchAlert
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: alert_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Search alert deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Search alert deleted successfully
+
+  /flatmates/web/map:
+    get:
+      tags: [Web Discovery]
+      summary: Map view with clustered pins
+      description: |
+        Get clustered listing data for map view. Returns locality clusters with counts and bounding pins.
+        Optimized for web map rendering with Google Maps clustering.
+      operationId: getMapView
+      security: []
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          schema:
+            type: number
+            format: float
+          description: Map center latitude
+        - name: lng
+          in: query
+          required: true
+          schema:
+            type: number
+            format: float
+          description: Map center longitude
+        - name: radius
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 5
+          description: Search radius in km
+        - name: zoom_level
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 18
+            default: 12
+          description: Map zoom level for cluster granularity
+        - name: property_type
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [flatmate, pg]
+        - name: price_min
+          in: query
+          schema:
+            type: number
+            minimum: 0
+        - name: price_max
+          in: query
+          schema:
+            type: number
+            maximum: 1000000000
+        - name: move_in
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [immediate, this_month, next_month, flexible]
+        - name: sharing_type
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [private_room, shared_room, master_bedroom, entire_flat]
+      responses:
+        '200':
+          description: Map clusters and pins
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MapViewResponse'
+
+  /flatmates/web/stats:
+    get:
+      tags: [Web Discovery]
+      summary: City statistics
+      description: |
+        Get city-level statistics for the cold-start city counter feature.
+        Shows active user counts, listing counts, and match rates per city.
+      operationId: getCityStats
+      security: []
+      parameters:
+        - name: city
+          in: query
+          schema:
+            type: string
+          description: City name (optional, returns all cities if omitted)
+      responses:
+        '200':
+          description: City statistics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CityStats'
+
+  /flatmates/web/listings/{listing_id}/share-card:
+    get:
+      tags: [Web Discovery]
+      summary: Generate share card
+      description: |
+        Generate a shareable image card for WhatsApp/Instagram Stories.
+        Returns a URL to the generated card image.
+      operationId: generateShareCard
+      security: []
+      parameters:
+        - name: listing_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [whatsapp_square, instagram_story, original]
+            default: whatsapp_square
+          description: Card format/aspect ratio
+      responses:
+        '200':
+          description: Share card URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  card_url:
+                    type: string
+                    format: uri
+                  format:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+
+  /flatmates/web/listings/{listing_id}/analytics:
+    get:
+      tags: [Web Discovery]
+      summary: Get listing analytics
+      description: |
+        Get analytics for a listing (owner only). Includes view counts, engagement metrics, and performance trends.
+      operationId: getListingAnalytics
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: listing_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [7d, 30d, all]
+            default: 30d
+      responses:
+        '200':
+          description: Listing analytics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListingAnalytics'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /flatmates/web/dashboard:
+    get:
+      tags: [Web Discovery]
+      summary: Room Poster dashboard
+      description: |
+        Get dashboard data for Room Posters including listing performance, lead counts, and activity summary.
+      operationId: getRoomPosterDashboard
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Dashboard data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomPosterDashboard'
+
+  /flatmates/web/compatibility/{user_id}:
+    get:
+      tags: [Web Discovery]
+      summary: Get compatibility breakdown
+      description: |
+        Get detailed compatibility breakdown between the current user and another user.
+        Returns per-dimension scores and a plain-English summary.
+      operationId: getCompatibilityBreakdown
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Compatibility breakdown
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompatibilityBreakdown'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Supabase Auth JWT token
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    # ===================== AUTH SCHEMAS =====================
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        full_name:
+          type: string
+        role:
+          type: string
+          enum: [user, admin, agent]
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        preferences:
+          type: object
+          additionalProperties: true
+
+    UserLocation:
+      type: object
+      properties:
+        city:
+          type: string
+        locality:
+          type: string
+        lat:
+          type: number
+          format: float
+        lng:
+          type: number
+          format: float
+
+    # ===================== BOOTSTRAP SCHEMAS =====================
+    FlatmatesBootstrap:
+      type: object
+      required: [profile, catalogs, active_listing_count, conversation_count, unread_message_count]
+      properties:
+        profile:
+          $ref: '#/components/schemas/FlatmatesProfile'
+        catalogs:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogEntry'
+        active_listing_count:
+          type: integer
+        conversation_count:
+          type: integer
+        unread_message_count:
+          type: integer
+
+    # ===================== CATALOG SCHEMAS =====================
+    CatalogEntry:
+      type: object
+      required: [key, version, payload]
+      properties:
+        key:
+          type: string
+          description: Catalog key (e.g., flatmate_modes, move_in_timelines, quiz_dimensions, vibe_tags)
+        version:
+          type: integer
+        payload:
+          type: object
+          additionalProperties: true
+          description: Catalog data specific to the key
+
+    # ===================== PROFILE SCHEMAS =====================
+    FlatmatesProfile:
+      type: object
+      properties:
+        id:
+          type: integer
+        full_name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        profile_image_url:
+          type: string
+          format: uri
+        mode:
+          $ref: '#/components/schemas/FlatmatesMode'
+        profile_status:
+          $ref: '#/components/schemas/FlatmatesProfileStatus'
+        onboarding_completed:
+          type: boolean
+          default: false
+        bio:
+          type: string
+          maxLength: 500
+        age:
+          type: integer
+          minimum: 18
+          maximum: 100
+        profession:
+          type: string
+        budget_min:
+          type: number
+          minimum: 0
+        budget_max:
+          type: number
+          minimum: 0
+        move_in_timeline:
+          type: string
+          enum: [immediate, this_month, next_month, flexible]
+        city:
+          type: string
+        locality:
+          type: string
+        sleep_schedule:
+          type: string
+          enum: [early_bird, flexible, night_owl]
+        cleanliness:
+          type: string
+          enum: [minimal, tidy, spotless]
+        food_habits:
+          type: string
+          enum: [vegetarian, non_vegetarian, eggetarian, no_preference]
+        smoking_drinking:
+          type: string
+          enum: [neither, smoke_outside, no_preference]
+        guests_policy:
+          type: string
+          enum: [no_overnight, occasional_ok, open_house]
+        work_style:
+          type: string
+          enum: [wfh_mostly, office_mostly, mixed]
+        gender:
+          type: string
+        gender_preference:
+          type: string
+          enum: [male, female, any]
+        preferences:
+          type: object
+          additionalProperties: true
+          description: Extended flatmate preferences (JSONB)
+        last_active_at:
+          type: string
+          format: date-time
+
+    FlatmatesProfileUpdate:
+      type: object
+      properties:
+        full_name:
+          type: string
+        profile_image_url:
+          type: string
+          format: uri
+        mode:
+          $ref: '#/components/schemas/FlatmatesMode'
+        profile_status:
+          $ref: '#/components/schemas/FlatmatesProfileStatus'
+        onboarding_completed:
+          type: boolean
+        bio:
+          type: string
+          maxLength: 500
+        age:
+          type: integer
+          minimum: 18
+          maximum: 100
+        profession:
+          type: string
+        budget_min:
+          type: number
+          minimum: 0
+        budget_max:
+          type: number
+          minimum: 0
+        move_in_timeline:
+          type: string
+          enum: [immediate, this_month, next_month, flexible]
+        city:
+          type: string
+        locality:
+          type: string
+        sleep_schedule:
+          type: string
+          enum: [early_bird, flexible, night_owl]
+        cleanliness:
+          type: string
+          enum: [minimal, tidy, spotless]
+        food_habits:
+          type: string
+          enum: [vegetarian, non_vegetarian, eggetarian, no_preference]
+        smoking_drinking:
+          type: string
+          enum: [neither, smoke_outside, no_preference]
+        guests_policy:
+          type: string
+          enum: [no_overnight, occasional_ok, open_house]
+        work_style:
+          type: string
+          enum: [wfh_mostly, office_mostly, mixed]
+        gender:
+          type: string
+        gender_preference:
+          type: string
+          enum: [male, female, any]
+        preferences:
+          type: object
+          additionalProperties: true
+
+    FlatmatesPeer:
+      type: object
+      properties:
+        id:
+          type: integer
+        full_name:
+          type: string
+        profile_image_url:
+          type: string
+          format: uri
+        mode:
+          $ref: '#/components/schemas/FlatmatesMode'
+        city:
+          type: string
+        locality:
+          type: string
+        age:
+          type: integer
+        profession:
+          type: string
+        bio:
+          type: string
+        budget_min:
+          type: number
+        budget_max:
+          type: number
+        move_in_timeline:
+          type: string
+        sleep_schedule:
+          type: string
+        cleanliness:
+          type: string
+        food_habits:
+          type: string
+        smoking_drinking:
+          type: string
+        guests_policy:
+          type: string
+        work_style:
+          type: string
+        gender:
+          type: string
+        gender_preference:
+          type: string
+        non_negotiables:
+          type: array
+          items:
+            type: string
+        has_pets:
+          type: boolean
+          default: false
+        party_habit:
+          type: string
+        match_percentage:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Compatibility percentage (6-dimension weighted scoring)
+        phone_number:
+          type: string
+
+    # ===================== SWIPE SCHEMAS =====================
+    SwipeRequest:
+      type: object
+      required: [target_type, action]
+      properties:
+        target_type:
+          $ref: '#/components/schemas/SwipeTargetType'
+        action:
+          $ref: '#/components/schemas/SwipeAction'
+        property_id:
+          type: integer
+          description: Required when target_type=property
+        target_user_id:
+          type: integer
+          description: Required when target_type=user
+        context_property_id:
+          type: integer
+          description: Listing context for person-to-person swipes
+
+    SwipeResult:
+      type: object
+      properties:
+        stored:
+          type: boolean
+          default: true
+        action:
+          $ref: '#/components/schemas/SwipeAction'
+        target_type:
+          $ref: '#/components/schemas/SwipeTargetType'
+        conversation_id:
+          type: integer
+          description: Created if mutual match
+        match_id:
+          type: integer
+          description: Created if mutual match
+        did_match:
+          type: boolean
+          description: True if a mutual match was created
+
+    # ===================== LIKE SCHEMAS =====================
+    IncomingLikeSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        peer:
+          $ref: '#/components/schemas/FlatmatesPeer'
+        context_property:
+          $ref: '#/components/schemas/ConversationPropertyContext'
+        created_at:
+          type: string
+          format: date-time
+
+    # ===================== MATCH SCHEMAS =====================
+    MatchSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        status:
+          $ref: '#/components/schemas/UserMatchStatus'
+        peer:
+          $ref: '#/components/schemas/FlatmatesPeer'
+        context_property:
+          $ref: '#/components/schemas/ConversationPropertyContext'
+        created_at:
+          type: string
+          format: date-time
+
+    # ===================== CONVERSATION SCHEMAS =====================
+    ConversationSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        source:
+          $ref: '#/components/schemas/ConversationSource'
+        status:
+          $ref: '#/components/schemas/ConversationStatus'
+        peer:
+          $ref: '#/components/schemas/FlatmatesPeer'
+        context_property:
+          $ref: '#/components/schemas/ConversationPropertyContext'
+        last_message_preview:
+          type: string
+        last_message_at:
+          type: string
+          format: date-time
+        unread_count:
+          type: integer
+          default: 0
+        matched_at:
+          type: string
+          format: date-time
+        qna:
+          $ref: '#/components/schemas/ConversationQnAState'
+
+    ConversationPropertyContext:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        locality:
+          type: string
+        city:
+          type: string
+        monthly_rent:
+          type: number
+        main_image_url:
+          type: string
+          format: uri
+        owner_name:
+          type: string
+        owner_image_url:
+          type: string
+          format: uri
+
+    ConversationQnAState:
+      type: object
+      properties:
+        current_user:
+          $ref: '#/components/schemas/ConversationQnAAnswer'
+        peer:
+          $ref: '#/components/schemas/ConversationQnAAnswer'
+        both_answered:
+          type: boolean
+          default: false
+
+    ConversationQnAAnswer:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        q1:
+          type: string
+          maxLength: 100
+          description: "What does your ideal flatmate situation look like?"
+        q2:
+          type: string
+          description: "How social are you at home on a typical weekday? (5-point scale)"
+        q3:
+          type: string
+          maxLength: 60
+          description: "One thing you absolutely need in a flatmate?"
+
+    MessageCreate:
+      type: object
+      properties:
+        body:
+          type: string
+          description: Message text content
+        attachment_url:
+          type: string
+          format: uri
+          description: URL for image attachments
+        message_type:
+          $ref: '#/components/schemas/MessageType'
+          default: text
+        metadata:
+          type: object
+          additionalProperties: true
+
+    MessageOut:
+      type: object
+      properties:
+        id:
+          type: integer
+        conversation_id:
+          type: integer
+        sender_id:
+          type: integer
+        body:
+          type: string
+        attachment_url:
+          type: string
+          format: uri
+        message_type:
+          $ref: '#/components/schemas/MessageType'
+        metadata:
+          type: object
+          additionalProperties: true
+        read_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    QnAAnswers:
+      type: object
+      properties:
+        answers:
+          type: object
+          additionalProperties:
+            type: string
+          description: "Keys are question indices (0, 1, 2), values are answer text"
+
+    # ===================== VISIT SCHEMAS =====================
+    VisitCreate:
+      type: object
+      required: [property_id, scheduled_date]
+      properties:
+        property_id:
+          type: integer
+        visit_context:
+          $ref: '#/components/schemas/VisitContext'
+          default: flatmate_meet
+        scheduled_date:
+          type: string
+          format: date-time
+        conversation_id:
+          type: integer
+          description: Required for flatmate_meet context
+        counterparty_user_id:
+          type: integer
+          description: Required for flatmate_meet context
+        match_id:
+          type: integer
+        special_requirements:
+          type: string
+        visit_notes:
+          type: string
+
+    VisitUpdate:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/VisitStatus'
+        scheduled_date:
+          type: string
+          format: date-time
+        special_requirements:
+          type: string
+        visit_notes:
+          type: string
+        visitor_feedback:
+          type: string
+        interest_level:
+          type: string
+        follow_up_required:
+          type: boolean
+        follow_up_date:
+          type: string
+          format: date
+
+    VisitReschedule:
+      type: object
+      required: [new_date]
+      properties:
+        new_date:
+          type: string
+          format: date-time
+        reason:
+          type: string
+
+    VisitCancel:
+      type: object
+      properties:
+        reason:
+          type: string
+
+    VisitComplete:
+      type: object
+      properties:
+        notes:
+          type: string
+        feedback:
+          type: string
+
+    Visit:
+      type: object
+      properties:
+        id:
+          type: integer
+        user_id:
+          type: integer
+        property_id:
+          type: integer
+        property_title:
+          type: string
+        agent_id:
+          type: integer
+        counterparty_user_id:
+          type: integer
+        conversation_id:
+          type: integer
+        match_id:
+          type: integer
+        visit_context:
+          $ref: '#/components/schemas/VisitContext'
+        scheduled_date:
+          type: string
+          format: date-time
+        actual_date:
+          type: string
+          format: date-time
+        status:
+          $ref: '#/components/schemas/VisitStatus'
+        special_requirements:
+          type: string
+        visit_notes:
+          type: string
+        visitor_feedback:
+          type: string
+        interest_level:
+          type: string
+        follow_up_required:
+          type: boolean
+        follow_up_date:
+          type: string
+          format: date
+        cancellation_reason:
+          type: string
+        rescheduled_from:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    VisitList:
+      type: object
+      properties:
+        visits:
+          type: array
+          items:
+            $ref: '#/components/schemas/Visit'
+        total:
+          type: integer
+
+    VisitSlice:
+      type: object
+      properties:
+        visits:
+          type: array
+          items:
+            $ref: '#/components/schemas/Visit'
+        total:
+          type: integer
+
+    # ===================== LISTING SCHEMAS =====================
+    PropertyCreate:
+      type: object
+      required: [property_type, purpose, title, city, locality, monthly_rent]
+      properties:
+        property_type:
+          $ref: '#/components/schemas/PropertyType'
+        purpose:
+          $ref: '#/components/schemas/PropertyPurpose'
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 5000
+        city:
+          type: string
+        state:
+          type: string
+        locality:
+          type: string
+        sub_locality:
+          type: string
+        address:
+          type: string
+          description: Full address (used for geocoding, not displayed publicly)
+        latitude:
+          type: number
+          format: float
+        longitude:
+          type: number
+          format: float
+        monthly_rent:
+          type: number
+          minimum: 0
+        security_deposit:
+          type: number
+          minimum: 0
+        maintenance_charges:
+          type: number
+          minimum: 0
+        area_sqft:
+          type: number
+          minimum: 0
+        bedrooms:
+          type: integer
+          minimum: 0
+        bathrooms:
+          type: integer
+          minimum: 0
+        features:
+          type: array
+          items:
+            type: string
+        tags:
+          type: array
+          items:
+            type: string
+        main_image_url:
+          type: string
+          format: uri
+        image_urls:
+          type: array
+          items:
+            type: string
+            format: uri
+        available_from:
+          type: string
+          format: date
+        gender_preference:
+          type: string
+          enum: [male, female, any]
+        sharing_type:
+          $ref: '#/components/schemas/ListingSharingType'
+        video_tour_url:
+          type: string
+          format: uri
+        society_type:
+          type: string
+          enum: [gated, independent, co_living, pg]
+        society_amenities:
+          type: array
+          items:
+            type: string
+        society_vibe_tags:
+          type: array
+          items:
+            type: string
+        listing_preferences:
+          type: object
+          additionalProperties: true
+          description: Listing-specific preferences and metadata
+
+    PropertyUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 5000
+        city:
+          type: string
+        locality:
+          type: string
+        sub_locality:
+          type: string
+        monthly_rent:
+          type: number
+          minimum: 0
+        security_deposit:
+          type: number
+          minimum: 0
+        maintenance_charges:
+          type: number
+          minimum: 0
+        area_sqft:
+          type: number
+        bedrooms:
+          type: integer
+        bathrooms:
+          type: integer
+        features:
+          type: array
+          items:
+            type: string
+        tags:
+          type: array
+          items:
+            type: string
+        main_image_url:
+          type: string
+          format: uri
+        image_urls:
+          type: array
+          items:
+            type: string
+            format: uri
+        available_from:
+          type: string
+          format: date
+        gender_preference:
+          type: string
+          enum: [male, female, any]
+        sharing_type:
+          $ref: '#/components/schemas/ListingSharingType'
+        video_tour_url:
+          type: string
+          format: uri
+        society_type:
+          type: string
+        society_amenities:
+          type: array
+          items:
+            type: string
+        society_vibe_tags:
+          type: array
+          items:
+            type: string
+        is_available:
+          type: boolean
+        listing_preferences:
+          type: object
+          additionalProperties: true
+
+    Property:
+      type: object
+      properties:
+        id:
+          type: integer
+        owner_id:
+          type: integer
+        property_type:
+          $ref: '#/components/schemas/PropertyType'
+        purpose:
+          $ref: '#/components/schemas/PropertyPurpose'
+        title:
+          type: string
+        description:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        locality:
+          type: string
+        sub_locality:
+          type: string
+        latitude:
+          type: number
+          format: float
+        longitude:
+          type: number
+          format: float
+        monthly_rent:
+          type: number
+        main_image_url:
+          type: string
+          format: uri
+        image_urls:
+          type: array
+          items:
+            type: string
+            format: uri
+        area_sqft:
+          type: number
+        bedrooms:
+          type: integer
+        bathrooms:
+          type: integer
+        features:
+          type: array
+          items:
+            type: string
+        tags:
+          type: array
+          items:
+            type: string
+        owner_name:
+          type: string
+        available_from:
+          type: string
+          format: date
+        gender_preference:
+          type: string
+        sharing_type:
+          $ref: '#/components/schemas/ListingSharingType'
+        video_tour_url:
+          type: string
+          format: uri
+        security_deposit:
+          type: number
+        maintenance_charges:
+          type: number
+        interest_count:
+          type: integer
+        view_count:
+          type: integer
+        like_count:
+          type: integer
+        is_available:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        preferences:
+          type: object
+          additionalProperties: true
+        status:
+          type: string
+        property_status:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        distance_km:
+          type: number
+          description: Distance from search center (when location-based search)
+        liked:
+          type: boolean
+          nullable: true
+          description: Whether current user has liked this property
+        user_has_scheduled_visit:
+          type: boolean
+          default: false
+        user_scheduled_visit_count:
+          type: integer
+          default: 0
+        user_next_visit_date:
+          type: string
+          format: date-time
+        owner:
+          $ref: '#/components/schemas/PropertyOwner'
+
+    PropertyOwner:
+      type: object
+      properties:
+        id:
+          type: integer
+        full_name:
+          type: string
+        profile_image_url:
+          type: string
+          format: uri
+        phone:
+          type: string
+
+    UnifiedPropertyResponse:
+      type: object
+      properties:
+        properties:
+          type: array
+          items:
+            $ref: '#/components/schemas/Property'
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        total_pages:
+          type: integer
+        filters_applied:
+          type: object
+          additionalProperties: true
+        search_center:
+          type: object
+          properties:
+            latitude:
+              type: number
+            longitude:
+              type: number
+
+    FlatmateListingAdmin:
+      type: object
+      description: Listing representation for admin moderation queue
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        owner_id:
+          type: integer
+        owner_name:
+          type: string
+        owner_phone:
+          type: string
+        city:
+          type: string
+        locality:
+          type: string
+        monthly_rent:
+          type: number
+        main_image_url:
+          type: string
+          format: uri
+        image_urls:
+          type: array
+          items:
+            type: string
+            format: uri
+        description:
+          type: string
+        moderation_status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        ai_prescreen_result:
+          type: object
+        ai_prescreen_flags:
+          type: array
+          items:
+            type: string
+        ai_prescreen_reason:
+          type: string
+
+    # ===================== NOTIFICATION SCHEMAS =====================
+    FlatmatesNotificationOut:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          default: general
+          description: "Notification type: new_match, new_message, listing_approved, listing_rejected, visit_scheduled, visit_confirmed, general"
+        title:
+          type: string
+        body:
+          type: string
+        is_read:
+          type: boolean
+          default: false
+        reference_id:
+          type: integer
+          nullable: true
+        route:
+          type: string
+          nullable: true
+          description: Deep link route for navigation
+        created_at:
+          type: string
+          format: date-time
+
+    FlatmatesNotificationUpdate:
+      type: object
+      properties:
+        is_read:
+          type: boolean
+        mark_all_read:
+          type: boolean
+
+    # ===================== BLOCK & REPORT SCHEMAS =====================
+    BlockCreate:
+      type: object
+      required: [blocked_user_id]
+      properties:
+        blocked_user_id:
+          type: integer
+        unmatch_only:
+          type: boolean
+          default: false
+
+    BlockOut:
+      type: object
+      properties:
+        id:
+          type: integer
+        blocker_user_id:
+          type: integer
+        blocked_user_id:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    ReportCreate:
+      type: object
+      required: [reported_user_id, reason]
+      properties:
+        reported_user_id:
+          type: integer
+        reason:
+          $ref: '#/components/schemas/UserReportReason'
+        conversation_id:
+          type: integer
+          nullable: true
+        property_id:
+          type: integer
+          nullable: true
+        notes:
+          type: string
+          maxLength: 1000
+
+    ReportOut:
+      type: object
+      properties:
+        id:
+          type: integer
+        reporter_user_id:
+          type: integer
+        reported_user_id:
+          type: integer
+        reason:
+          $ref: '#/components/schemas/UserReportReason'
+        status:
+          $ref: '#/components/schemas/UserReportStatus'
+        notes:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    ReportAdmin:
+      type: object
+      properties:
+        id:
+          type: integer
+        reporter_user_id:
+          type: integer
+        reporter_name:
+          type: string
+        reported_user_id:
+          type: integer
+        reported_name:
+          type: string
+        conversation_id:
+          type: integer
+          nullable: true
+        property_id:
+          type: integer
+          nullable: true
+        reason:
+          $ref: '#/components/schemas/UserReportReason'
+        status:
+          $ref: '#/components/schemas/UserReportStatus'
+        notes:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    # ===================== INTERACTION SCHEMAS =====================
+    ProfileViewEventCreate:
+      type: object
+      required: [target_user_id, duration_seconds]
+      properties:
+        target_user_id:
+          type: integer
+          minimum: 1
+        context_property_id:
+          type: integer
+          minimum: 1
+        duration_seconds:
+          type: integer
+          minimum: 0
+          maximum: 3600
+        scroll_depth_percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        source:
+          type: string
+          minLength: 1
+          maxLength: 64
+          default: swipe_deck
+
+    ProfileViewEventOut:
+      type: object
+      properties:
+        id:
+          type: integer
+        viewer_user_id:
+          type: integer
+        viewed_user_id:
+          type: integer
+        context_property_id:
+          type: integer
+          nullable: true
+        source:
+          type: string
+        duration_seconds:
+          type: integer
+        scroll_depth_percent:
+          type: integer
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    SocietyTagVoteCreate:
+      type: object
+      required: [tag, vote]
+      properties:
+        tag:
+          type: string
+          minLength: 1
+          maxLength: 80
+        vote:
+          type: string
+          enum: [up, down]
+
+    SocietyTagVoteOut:
+      type: object
+      properties:
+        property_id:
+          type: integer
+        tag:
+          type: string
+        current_vote:
+          type: string
+          enum: [up, down]
+        upvotes:
+          type: integer
+        downvotes:
+          type: integer
+        disputed:
+          type: boolean
+          default: false
+          description: True if tag has 3+ downvotes
+
+    # ===================== ADMIN MODERATION SCHEMAS =====================
+    ListingModerationAction:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [approve, reject, request_edit]
+        reason:
+          type: string
+          maxLength: 500
+
+    ReportModerationAction:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [dismiss, warn_user, suspend_user, escalate]
+        notes:
+          type: string
+          maxLength: 500
+
+    # ===================== WEB DISCOVERY SCHEMAS =====================
+    WebSearchResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            oneOf:
+              - $ref: '#/components/schemas/Property'
+              - $ref: '#/components/schemas/FlatmatesPeer'
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+        total_pages:
+          type: integer
+        search_type:
+          type: string
+          enum: [listings, profiles, all]
+        filters_applied:
+          type: object
+          additionalProperties: true
+        search_center:
+          type: object
+          properties:
+            latitude:
+              type: number
+            longitude:
+              type: number
+
+    SavedSearchCreate:
+      type: object
+      required: [name, filters]
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        filters:
+          type: object
+          additionalProperties: true
+          description: Search filter configuration
+        alert_enabled:
+          type: boolean
+          default: false
+        alert_frequency:
+          type: string
+          enum: [instant, daily, weekly]
+          default: daily
+        alert_channels:
+          type: array
+          items:
+            type: string
+            enum: [email, push, in_app]
+          default: [in_app]
+
+    SavedSearchUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        filters:
+          type: object
+          additionalProperties: true
+        alert_enabled:
+          type: boolean
+        alert_frequency:
+          type: string
+          enum: [instant, daily, weekly]
+        alert_channels:
+          type: array
+          items:
+            type: string
+            enum: [email, push, in_app]
+
+    SavedSearch:
+      type: object
+      properties:
+        id:
+          type: integer
+        user_id:
+          type: integer
+        name:
+          type: string
+        filters:
+          type: object
+          additionalProperties: true
+        alert_enabled:
+          type: boolean
+        alert_frequency:
+          type: string
+          enum: [instant, daily, weekly]
+        alert_channels:
+          type: array
+          items:
+            type: string
+            enum: [email, push, in_app]
+        last_run_at:
+          type: string
+          format: date-time
+        new_results_count:
+          type: integer
+          default: 0
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    SearchAlertCreate:
+      type: object
+      required: [name, filters]
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        filters:
+          type: object
+          additionalProperties: true
+        frequency:
+          type: string
+          enum: [instant, daily, weekly]
+          default: daily
+        channels:
+          type: array
+          items:
+            type: string
+            enum: [email, push, in_app]
+          default: [in_app]
+
+    SearchAlertUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        frequency:
+          type: string
+          enum: [instant, daily, weekly]
+        channels:
+          type: array
+          items:
+            type: string
+            enum: [email, push, in_app]
+        enabled:
+          type: boolean
+
+    SearchAlert:
+      type: object
+      properties:
+        id:
+          type: integer
+        user_id:
+          type: integer
+        name:
+          type: string
+        filters:
+          type: object
+          additionalProperties: true
+        frequency:
+          type: string
+          enum: [instant, daily, weekly]
+        channels:
+          type: array
+          items:
+            type: string
+            enum: [email, push, in_app]
+        enabled:
+          type: boolean
+        last_sent_at:
+          type: string
+          format: date-time
+        results_sent_count:
+          type: integer
+          default: 0
+        created_at:
+          type: string
+          format: date-time
+
+    MapViewResponse:
+      type: object
+      properties:
+        clusters:
+          type: array
+          items:
+            $ref: '#/components/schemas/MapCluster'
+        pins:
+          type: array
+          items:
+            $ref: '#/components/schemas/MapPin'
+        bounds:
+          type: object
+          properties:
+            north:
+              type: number
+            south:
+              type: number
+            east:
+              type: number
+            west:
+              type: number
+        total_listings:
+          type: integer
+
+    MapCluster:
+      type: object
+      properties:
+        id:
+          type: string
+        lat:
+          type: number
+          format: float
+        lng:
+          type: number
+          format: float
+        count:
+          type: integer
+        type_breakdown:
+          type: object
+          properties:
+            room_available:
+              type: integer
+            co_hunter:
+              type: integer
+        price_range:
+          type: object
+          properties:
+            min:
+              type: number
+            max:
+              type: number
+
+    MapPin:
+      type: object
+      properties:
+        id:
+          type: integer
+        lat:
+          type: number
+          format: float
+        lng:
+          type: number
+          format: float
+        title:
+          type: string
+        locality:
+          type: string
+        monthly_rent:
+          type: number
+        main_image_url:
+          type: string
+          format: uri
+        mode:
+          $ref: '#/components/schemas/FlatmatesMode'
+        sharing_type:
+          $ref: '#/components/schemas/ListingSharingType'
+        is_available:
+          type: boolean
+        move_in_timeline:
+          type: string
+
+    CityStats:
+      type: object
+      properties:
+        city:
+          type: string
+        active_users:
+          type: integer
+          description: Users active in the last 7 days
+        total_listings:
+          type: integer
+        new_listings_7d:
+          type: integer
+        total_matches_7d:
+          type: integer
+        match_rate:
+          type: number
+          description: Match rate percentage in the last 7 days
+        is_waitlist:
+          type: boolean
+          description: True if city is below density threshold
+
+    ListingAnalytics:
+      type: object
+      properties:
+        listing_id:
+          type: integer
+        period:
+          type: string
+        total_views:
+          type: integer
+        unique_views:
+          type: integer
+        likes:
+          type: integer
+        shares:
+          type: integer
+        conversations_started:
+          type: integer
+        visits_scheduled:
+          type: integer
+        daily_stats:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              views:
+                type: integer
+              likes:
+                type: integer
+              shares:
+                type: integer
+        boost_active:
+          type: boolean
+        boost_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    RoomPosterDashboard:
+      type: object
+      properties:
+        total_listings:
+          type: integer
+        active_listings:
+          type: integer
+        pending_review:
+          type: integer
+        paused:
+          type: integer
+        total_views_30d:
+          type: integer
+        total_likes_30d:
+          type: integer
+        total_conversations_30d:
+          type: integer
+        total_visits_30d:
+          type: integer
+        listings:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              title:
+                type: string
+              status:
+                type: string
+              views:
+                type: integer
+              likes:
+                type: integer
+              conversations:
+                type: integer
+              days_until_expiry:
+                type: integer
+              boost_active:
+                type: boolean
+
+    CompatibilityBreakdown:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        peer_id:
+          type: integer
+        overall_percentage:
+          type: number
+          minimum: 0
+          maximum: 100
+        color:
+          type: string
+          enum: [green, amber, red]
+          description: "green >= 70%, amber 40-69%, red < 40%"
+        dimensions:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompatibilityDimension'
+        summary:
+          type: array
+          items:
+            type: string
+            description: Plain-English per-dimension summary
+
+    CompatibilityDimension:
+      type: object
+      properties:
+        name:
+          type: string
+          enum: [sleep_schedule, cleanliness, food_habits, smoking_drinking, guests_policy, work_style]
+        weight:
+          type: number
+          description: Dimension weight in overall calculation
+        user_value:
+          type: string
+        peer_value:
+          type: string
+        score:
+          type: number
+          minimum: 0
+          maximum: 100
+        match:
+          type: boolean
+
+    # ===================== ENUMS =====================
+    FlatmatesMode:
+      type: string
+      enum: [room_poster, co_hunter, open_to_both]
+
+    FlatmatesProfileStatus:
+      type: string
+      enum: [draft, pending_review, active, paused]
+
+    SwipeTargetType:
+      type: string
+      enum: [property, user]
+
+    SwipeAction:
+      type: string
+      enum: [pass, like, super_like]
+
+    UserMatchStatus:
+      type: string
+      enum: [active, unmatched, blocked]
+
+    ConversationSource:
+      type: string
+      enum: [listing_interest, profile_match]
+
+    ConversationStatus:
+      type: string
+      enum: [active, archived, blocked, closed]
+
+    MessageType:
+      type: string
+      enum: [text, image, system, visit_request]
+
+    VisitContext:
+      type: string
+      enum: [property_tour, flatmate_meet]
+
+    VisitStatus:
+      type: string
+      enum: [requested, confirmed, reschedule_suggested, cancelled, completed]
+
+    UserReportReason:
+      type: string
+      enum: [spam, fake_profile, abuse, inappropriate, other]
+
+    UserReportStatus:
+      type: string
+      enum: [open, reviewed, dismissed, actioned]
+
+    PropertyType:
+      type: string
+      enum: [pg, flatmate]
+
+    PropertyPurpose:
+      type: string
+      enum: [rent]
+
+    ListingSharingType:
+      type: string
+      enum: [private_room, shared_room, master_bedroom, entire_flat]
+
+    # ===================== ERROR SCHEMA =====================
+    Error:
+      type: object
+      properties:
+        detail:
+          type: string
+          description: Error message
+        error_code:
+          type: string
+          description: Optional machine-readable error code

@@ -280,21 +280,21 @@ async def geocode_listing(db: AsyncSession, property_id: int) -> None:
         return
 
     try:
-        import httpx
+        from app.core.http import get_general_client
 
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                "https://maps.googleapis.com/maps/api/geocode/json",
-                params={"address": address, "key": api_key},
-                timeout=10,
-            )
-            data = resp.json()
-            if data.get("results"):
-                loc = data["results"][0]["geometry"]["location"]
-                prop.latitude = loc["lat"]
-                prop.longitude = loc["lng"]
-                prop.location = wkt_point(prop.longitude, prop.latitude)
-                await db.flush()
+        client = get_general_client()
+        resp = await client.get(
+            "https://maps.googleapis.com/maps/api/geocode/json",
+            params={"address": address, "key": api_key},
+            timeout=10.0,
+        )
+        data = resp.json()
+        if data.get("results"):
+            loc = data["results"][0]["geometry"]["location"]
+            prop.latitude = loc["lat"]
+            prop.longitude = loc["lng"]
+            prop.location = wkt_point(prop.longitude, prop.latitude)
+            await db.flush()
     except Exception as exc:  # noqa: BLE001
         logger.warning("Property geocoding failed (best-effort): %s", exc, exc_info=True)
         pass

@@ -39,14 +39,14 @@ async def update_visit_status(
 
     # --- SSE events to both parties ---
     try:
-        from app.core.sse import sse_bus
+        from app.core.sse import SSE_VISIT_UPDATED, sse_bus
 
         for uid in (visit.user_id, visit.counterparty_user_id):
             if uid is None:
                 continue
             await sse_bus.emit(
                 uid,
-                {"type": "visit_updated", "visit_id": visit_id, "status": effective_status},
+                {"type": SSE_VISIT_UPDATED, "visit_id": visit_id, "status": effective_status},
             )
     except Exception:  # noqa: BLE001
         pass  # best-effort

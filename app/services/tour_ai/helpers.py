@@ -10,7 +10,6 @@ import asyncio
 import base64
 from typing import Any
 
-import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from tenacity import (
     before_sleep_log,
@@ -239,16 +238,18 @@ async def _ensure_navigation_hotspots(
 
 async def _download_image_as_base64(url: str) -> tuple[str, str]:
     """Download an image and convert to base64."""
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.get(url)
-        response.raise_for_status()
+    from app.core.http import get_general_client
 
-        content_type = response.headers.get("content-type", "image/jpeg")
-        if ";" in content_type:
-            content_type = content_type.split(";")[0].strip()
+    client = get_general_client()
+    response = await client.get(url, timeout=30.0)
+    response.raise_for_status()
 
-        image_base64 = base64.b64encode(response.content).decode("utf-8")
-        return image_base64, content_type
+    content_type = response.headers.get("content-type", "image/jpeg")
+    if ";" in content_type:
+        content_type = content_type.split(";")[0].strip()
+
+    image_base64 = base64.b64encode(response.content).decode("utf-8")
+    return image_base64, content_type
 
 
 async def _get_ai_provider_safe():

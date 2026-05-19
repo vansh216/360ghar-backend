@@ -19,8 +19,7 @@ logger = get_logger(__name__)
 async def get_user_by_phone(db: AsyncSession, phone: str) -> User | None:
     """Fetch a user by phone number, if present.
 
-    Note: Phone numbers are not unique in the schema; this returns the first match
-    if multiple exist. For existence checks, this is sufficient.
+    Phone has a unique constraint, so this returns at most one user.
     """
     logger.debug("Fetching user by phone: %s", phone)
     try:
@@ -67,8 +66,14 @@ async def get_user_by_supabase_id(db: AsyncSession, supabase_user_id: str) -> Us
         raise
 
 async def get_or_create_user_from_supabase(db: AsyncSession, supabase_user_data: dict[str, Any]) -> User:
-    """Get or create user from Supabase auth data"""
-    logger.info("Getting or creating user from Supabase data for user %s", supabase_user_data['id'])
+    """Get or create user from Supabase auth data.
+
+    Handles three scenarios:
+    1. Existing user found by supabase_user_id → return as-is
+    2. Existing user found by phone or email (account linking) → update supabase_user_id
+    3. No existing user → create new user
+    """
+    logger.debug("Getting or creating user from Supabase data for user %s", supabase_user_data['id'])
 
     try:
         # Normalize incoming fields
@@ -76,31 +81,36 @@ async def get_or_create_user_from_supabase(db: AsyncSession, supabase_user_data:
         email = supabase_user_data.get("email") or None
         phone = supabase_user_data.get("phone") or None
         full_name = (supabase_user_data.get("user_metadata") or {}).get("full_name")
-        is_verified = bool(supabase_user_data.get("email_verified", False))
+        email_verified = bool(supabase_user_data.get("email_verified", False))
 
         user = await get_user_by_supabase_id(db, supabase_id or "")
 
         if not user:
-            # Prioritize phone lookup over email since phone is now the primary identifier
+            clauses = []
             if phone:
-                user = await get_user_by_phone(db, phone)
-            elif email:
-                # Fallback to email lookup for backward compatibility with existing users
-                user = await get_user_by_email(db, email)
-            else:
-                user = None
+                clauses.append(User.phone == phone)
+            if email:
+                clauses.append(User.email == email)
+            if clauses:
+                stmt = select(User).where(or_(*clauses))
+                user = (await db.execute(stmt)).scalar_one_or_none()
 
             if user:
-                # Update with Supabase ID
-                logger.info("Updating existing user %s with Supabase ID", user.id)
+                # Account linking: update existing user with new Supabase ID
+                logger.info(
+                    "Linking account: updating existing user %s with new Supabase ID %s (email=%s phone=%s)",
+                    user.id, supabase_id, 'present' if email else 'none', 'present' if phone else 'none'
+                )
                 user.supabase_user_id = str(supabase_id)
-                # Optionally backfill missing phone/full_name
+                # Backfill missing fields without overwriting existing data
                 if phone and not user.phone:
                     user.phone = phone
                 if full_name and not user.full_name:
                     user.full_name = full_name
+                if email and not user.email:
+                    user.email = email
             else:
-                # Create new user
+                # Create new user (e.g., first Google login with no existing account)
                 logger.info("Creating new user from Supabase data: phone=%s email=%s", 'present' if phone else 'none', 'present' if email else 'none')
                 user = User(
                     supabase_user_id=supabase_id,
@@ -108,7 +118,8 @@ async def get_or_create_user_from_supabase(db: AsyncSession, supabase_user_data:
                     full_name=full_name,
                     phone=phone,
                     is_active=True,
-                    is_verified=is_verified
+                    is_verified=email_verified,
+                    phone_verified=False,
                 )
                 db.add(user)
             # Flush with protection against race-condition duplicates on supabase_user_id
@@ -120,10 +131,8 @@ async def get_or_create_user_from_supabase(db: AsyncSession, supabase_user_data:
                     str(ie)
                 )
                 await db.rollback()
-                # Another request likely created the user already; fetch and return it
                 user = await get_user_by_supabase_id(db, str(supabase_id or ""))
                 if not user:
-                    # Re-raise if still not found; something else went wrong
                     raise
             else:
                 await db.refresh(user)

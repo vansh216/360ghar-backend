@@ -255,6 +255,8 @@ def setup_logging() -> None:
                 "sqlalchemy.engine": {"level": "WARNING"},
                 # Be explicit for the concrete Engine logger as well
                 "sqlalchemy.engine.Engine": {"level": "WARNING"},
+                # User auth lookups fire on every request — suppress in production
+                "app.services.user": {"level": "WARNING" if is_production else "DEBUG"},
             },
         }
     )
