@@ -49,6 +49,8 @@ class ListingGenderPreference(str, Enum):
 class ListingSharingType(str, Enum):
     private_room = "private_room"
     shared_room = "shared_room"
+    master_bedroom = "master_bedroom"
+    entire_flat = "entire_flat"
 
 
 class BookingStatus(str, Enum):
@@ -69,11 +71,11 @@ class PaymentStatus(str, Enum):
 
 
 class VisitStatus(str, Enum):
-    scheduled = "scheduled"
+    scheduled = "requested"
     confirmed = "confirmed"
     completed = "completed"
     cancelled = "cancelled"
-    rescheduled = "rescheduled"
+    rescheduled = "reschedule_suggested"
 
 
 class FlatmatesMode(str, Enum):
@@ -88,6 +90,7 @@ class FlatmatesProfileStatus(str, Enum):
     pending_review = "pending_review"
     active = "active"
     paused = "paused"
+    rejected = "rejected"
 
 
 class SwipeTargetType(str, Enum):

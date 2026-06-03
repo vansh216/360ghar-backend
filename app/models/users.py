@@ -125,6 +125,7 @@ class UserSwipe(Base):
             unique=True,
             postgresql_where=text('target_user_id IS NOT NULL'),
         ),
+        Index('idx_user_swipes_created_at', 'created_at'),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

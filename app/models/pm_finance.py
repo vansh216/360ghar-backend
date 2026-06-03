@@ -8,9 +8,9 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
-    Float,
     ForeignKey,
     Index,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -58,8 +58,8 @@ class RentCharge(Base):
     period_end: Mapped[date] = mapped_column(Date, nullable=False)
     due_date: Mapped[date] = mapped_column(Date, nullable=False)
 
-    amount_due: Mapped[float] = mapped_column(Float, nullable=False)
-    late_fee_assessed: Mapped[float] = mapped_column(Float, default=0.0)
+    amount_due: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    late_fee_assessed: Mapped[float] = mapped_column(Numeric(10, 2), default=0.0)
 
     status: Mapped[RentChargeStatus] = mapped_column(
         SQLEnum(RentChargeStatus, name="rent_charge_status"),
@@ -109,7 +109,7 @@ class RentPayment(Base):
     )
 
     paid_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    amount_paid: Mapped[float] = mapped_column(Float, nullable=False)
+    amount_paid: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     payment_method: Mapped[str | None] = mapped_column(String, nullable=True)
     reference: Mapped[str | None] = mapped_column(String, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -150,7 +150,7 @@ class Expense(Base):
     category: Mapped[ExpenseCategory] = mapped_column(
         SQLEnum(ExpenseCategory, name="expense_category"), nullable=False
     )
-    amount: Mapped[float] = mapped_column(Float, nullable=False)
+    amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     expense_date: Mapped[date] = mapped_column(Date, nullable=False)
 
     description: Mapped[str | None] = mapped_column(Text, nullable=True)

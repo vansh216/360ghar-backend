@@ -5,6 +5,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.config import settings
 from app.core.exceptions import (
     BadRequestException,
     BookingConflictError,
@@ -300,8 +301,8 @@ async def calculate_pricing(db: AsyncSession, property_id: int, check_in_date: d
 
     # Calculate taxes and service charges on the discounted subtotal
     taxable_subtotal = max(base_amount - discount_amount, 0.0)
-    taxes_amount = taxable_subtotal * 0.18
-    service_charges = taxable_subtotal * 0.05
+    taxes_amount = taxable_subtotal * settings.GST_RATE
+    service_charges = taxable_subtotal * settings.SERVICE_CHARGE_RATE
 
     total_amount = taxable_subtotal + taxes_amount + service_charges
 

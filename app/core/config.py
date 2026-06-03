@@ -227,6 +227,10 @@ class Settings(BaseSettings):
     SUPABASE_STORAGE_BUCKET: str = "360ghar-storage"
     MAX_UPLOAD_SIZE_MB: int = 50
 
+    # ── Tax & Service Rates ────────────────────────────────────────────────────
+    GST_RATE: float = 0.18  # 18% GST for booking tax calculation
+    SERVICE_CHARGE_RATE: float = 0.05  # 5% service charge for bookings
+
     # ── Data Hub ────────────────────────────────────────────────────────────────
     DATA_HUB_ENABLED: bool = True
     GOOGLE_PLACES_API_KEY: str | None = None

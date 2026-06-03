@@ -13,6 +13,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     text,
@@ -71,6 +72,7 @@ class Property(Base):
     __table_args__ = (
         Index('idx_property_filters', 'property_type', 'purpose', 'is_available'),
         Index('idx_property_price', 'base_price'),
+        Index('idx_properties_created_at', 'created_at'),
         # PostGIS and FTS indexes are created by migrations:
         # - supabase/migrations/20250818081100_add_geography_to_properties.sql
         # - supabase/migrations/20250818081200_add_full_text_search_to_properties.sql
@@ -102,12 +104,12 @@ class Property(Base):
     area_type: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # Pricing
-    base_price: Mapped[float] = mapped_column(Float, nullable=False)
-    price_per_sqft: Mapped[float | None] = mapped_column(Float, nullable=True)
-    monthly_rent: Mapped[float | None] = mapped_column(Float, nullable=True)
-    daily_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
-    security_deposit: Mapped[float | None] = mapped_column(Float, nullable=True)
-    maintenance_charges: Mapped[float | None] = mapped_column(Float, nullable=True)
+    base_price: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    price_per_sqft: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    monthly_rent: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    daily_rate: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    security_deposit: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    maintenance_charges: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
 
     # Details
     area_sqft: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -239,6 +241,9 @@ class PropertyAmenity(Base):
 
 class Visit(Base):
     __tablename__ = "visits"
+    __table_args__ = (
+        Index("idx_visits_scheduled_date", "scheduled_date"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))

@@ -22,6 +22,7 @@ from app.models.enums import (
     PropertyPurpose,
     PropertyType,
     UserRole,
+    VisitStatus,
 )
 from app.models.properties import Amenity, Property, PropertyAmenity, PropertyImage
 from app.models.users import User as UserModel
@@ -397,7 +398,7 @@ async def delete_property(db: AsyncSession, property_id: int, actor: UserSchema)
                 select(Visit.id)
                 .where(
                     Visit.property_id == property_id,
-                    Visit.status.in_(["scheduled", "confirmed"]),
+                    Visit.status.in_([VisitStatus.scheduled, VisitStatus.confirmed]),
                 )
                 .limit(1)
             )

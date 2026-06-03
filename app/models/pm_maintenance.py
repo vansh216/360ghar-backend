@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, Numeric, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Enum as SQLEnum
 
@@ -75,8 +75,8 @@ class MaintenanceRequest(Base):
         SQLEnum(WorkOrderStatus, name="work_order_status"), nullable=True
     )
     priority: Mapped[str | None] = mapped_column(Text, nullable=True)
-    estimated_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
-    actual_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
+    estimated_cost: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    actual_cost: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

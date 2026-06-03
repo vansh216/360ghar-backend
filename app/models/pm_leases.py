@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Index, Integer, Text, func
+from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Index, Integer, Numeric, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Enum as SQLEnum
 
@@ -53,10 +53,10 @@ class Lease(Base):
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date] = mapped_column(Date, nullable=False)
 
-    monthly_rent: Mapped[float] = mapped_column(Float, nullable=False)
-    security_deposit: Mapped[float] = mapped_column(Float, nullable=False)
+    monthly_rent: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    security_deposit: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
 
-    late_fee_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    late_fee_amount: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     late_fee_percentage: Mapped[float | None] = mapped_column(Float, nullable=True)
     grace_period_days: Mapped[int] = mapped_column(Integer, default=5)
     payment_due_day: Mapped[int] = mapped_column(Integer, default=1)
