@@ -15,6 +15,7 @@ from tenacity import (
 
 from app.config import settings
 from app.core.http import get_supabase_auth_http_client
+from app.core.jwt_verification import JWKSUnavailable, verify_jwt_locally
 from app.core.logging import get_logger
 from supabase import Client, ClientOptions, create_client
 
@@ -223,12 +224,79 @@ class SupabaseClientManager:
         return await client.post(url, headers=self._admin_headers(json=True), json=json)
 
     async def verify_token(self, token: str) -> dict[str, Any] | None:
-        """Verify Supabase JWT by calling the Supabase Auth API.
+        """Verify Supabase JWT.
 
-        Returns the user dict on success, ``None`` on invalid token /
-        bad response shape, or a tagged failure dict
+        Tries local JWKS-based verification first (signature + iss/aud/exp).
+        Falls back to Supabase Auth ``GET /auth/v1/user`` introspection when
+        the JWKS is unavailable.  Returns the user dict on success, ``None``
+        on an invalid/expired token, or a tagged failure dict
         (:func:`_make_failure`) when the Supabase host is unreachable.
-        Callers in the dependency layer must handle the tagged case.
+        """
+        # ── Fast path: local JWT verification ───────────────────────────────
+        try:
+            claims = await verify_jwt_locally(token)
+        except JWKSUnavailable as exc:
+            logger.info(
+                "JWKS unavailable (%s); falling back to introspection", exc
+            )
+            claims = None  # fall through to introspection
+        except Exception as exc:  # noqa: BLE001 — never crash auth on JWT util
+            logger.warning("Local JWT verification error: %s", exc)
+            claims = None
+
+        if claims is not None:
+            return self._claims_to_user_dict(token, claims)
+
+        # ── Fallback: Supabase Auth introspection ───────────────────────────
+        return await self._verify_via_introspection(token)
+
+    def _claims_to_user_dict(
+        self, token: str, claims: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Convert decoded JWT claims to the canonical user dict shape.
+
+        The claims from a Supabase access token contain ``sub`` (user id),
+        ``email``, ``phone``, and ``user_metadata``/``app_metadata`` in some
+        token versions.  Per-channel verification is derived from the
+        ``*_confirmed_at`` fields when present, otherwise from the ``aal``
+        and provider metadata.
+        """
+        user_id = claims.get("sub")
+        if not isinstance(user_id, str) or not user_id.strip():
+            logger.warning("JWT claims missing 'sub'")
+            return None
+
+        email = claims.get("email") if isinstance(claims.get("email"), str) else None
+        phone = claims.get("phone") if isinstance(claims.get("phone"), str) else None
+        user_metadata = claims.get("user_metadata")
+        if not isinstance(user_metadata, dict):
+            user_metadata = {}
+        app_metadata = claims.get("app_metadata")
+        if not isinstance(app_metadata, dict):
+            app_metadata = {}
+
+        email_confirmed_at = claims.get("email_confirmed_at")
+        phone_confirmed_at = claims.get("phone_confirmed_at")
+
+        email_verified = bool(email_confirmed_at or phone_confirmed_at)
+        phone_verified = bool(phone_confirmed_at)
+
+        return {
+            "id": user_id,
+            "email": email,
+            "user_metadata": user_metadata,
+            "app_metadata": app_metadata,
+            "phone": phone,
+            "email_verified": email_verified,
+            "phone_verified": phone_verified,
+            "email_confirmed_at": email_confirmed_at,
+            "phone_confirmed_at": phone_confirmed_at,
+        }
+
+    async def _verify_via_introspection(self, token: str) -> dict[str, Any] | None:
+        """Verify a token by calling Supabase Auth ``GET /auth/v1/user``.
+
+        Used as a fallback when local JWKS verification is not available.
         """
         url = f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/user"
         headers = {

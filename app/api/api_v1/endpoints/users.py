@@ -6,6 +6,7 @@ from app.api.api_v1.dependencies.auth import (
     get_current_active_user,
     get_current_admin,
 )
+from app.core.auth import AuthFailureReason, _is_failure
 from app.core.database import get_db
 from app.core.exceptions import ConflictException
 from app.core.logging import get_logger
@@ -23,6 +24,7 @@ from app.schemas.user import User as UserSchema
 from app.services.agent import assign_agent_to_user
 from app.services.storage import storage_service
 from app.services.user import (
+    compute_auth_gate_state,
     get_all_users,
     get_user_by_id,
     update_user,
@@ -40,6 +42,92 @@ router = APIRouter()
 async def get_user_me(current_user: User = Depends(get_current_active_user)):
     """Get current user profile (alias for /profile)."""
     return UserSchema.model_validate(current_user)
+
+
+@router.get("/me/auth-state")
+async def get_auth_state(
+    app: str = Query("flatmates", description="App slug for onboarding check"),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Compute and return the current auth gate stage for the user.
+
+    Returns the centralized gate state:
+      ``stage``: one of identifier_verification, password_setup,
+        profile_completion, app_onboarding, active
+      ``next_action``: what the client should route to
+      ``missing_fields``: profile fields still required (if applicable)
+
+    The ``app`` query param selects which app's onboarding check to run
+    (defaults to ``flatmates``).  New apps register their check via
+    :func:`register_app_onboarding_check` during startup.
+    """
+    return await compute_auth_gate_state(db, current_user, app=app)
+
+
+@router.get("/me/identities")
+async def get_linked_identities(
+    current_user: User = Depends(get_current_active_user),
+):
+    """Return the OAuth identities linked to the current Supabase user.
+
+    Reads from the app_metadata on the current user (populated during login
+    by the dependency layer).  Returns a list of ``{provider, identity_id}``.
+    """
+    identities = []
+    # The dependency layer stores app_metadata on the User model's
+    # supabase_user_id-linked auth record.  We read the raw app_metadata
+    # from the current request's resolved user if available.
+    raw = getattr(current_user, "_supabase_app_metadata", None)
+    if isinstance(raw, dict):
+        for provider, id_data in (raw.get("provider") or raw.get("providers") or {}).items():
+            if isinstance(id_data, dict):
+                identities.append({"provider": provider, "identity_id": id_data.get("id")})
+            else:
+                identities.append({"provider": provider})
+    return {"identities": identities}
+
+
+@router.delete("/me", response_model=MessageResponse)
+async def delete_user_account(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete the current user's account.
+
+    Calls the Supabase Admin API to delete the auth user, then soft-deletes
+    the local row (sets ``is_active = False`` and preserves the record for
+    referential integrity with properties/visits/bookings).
+    """
+    from app.core.auth import _manager
+    from app.config import settings
+    import httpx
+
+    supabase_user_id = current_user.supabase_user_id
+    admin_url = f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/admin/users/{supabase_user_id}"
+    headers = {
+        "apikey": settings.SUPABASE_SECRET_KEY,
+        "Authorization": f"Bearer {settings.SUPABASE_SECRET_KEY}",
+    }
+    try:
+        client = httpx.AsyncClient(timeout=10.0)
+        resp = await client.delete(admin_url, headers=headers)
+        await client.aclose()
+        if resp.status_code not in (200, 204):
+            logger.warning(
+                "Supabase admin delete failed for %s: %s %s",
+                supabase_user_id,
+                resp.status_code,
+                resp.text[:200],
+            )
+    except Exception:
+        logger.warning("Supabase admin delete error for %s", supabase_user_id, exc_info=True)
+
+    # Soft-delete the local row (preserve referential integrity).
+    current_user.is_active = False
+    await db.flush()
+    logger.info("User %s account deleted (soft-deleted locally)", current_user.id)
+    return MessageResponse(message="Account deleted successfully")
 
 
 @router.put("/me", response_model=UserSchema)

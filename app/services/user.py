@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.exc import IntegrityError
@@ -421,6 +421,126 @@ async def get_identifier_status(db: AsyncSession, identifier: str) -> dict[str, 
         "channel": channel,
         "next_step": next_step,
     }
+
+
+# ── Auth gate-state computation ──────────────────────────────────────────────
+# The gate model: IDENTIFIER_VERIFICATION -> PASSWORD_SETUP -> PROFILE_COMPLETION
+# -> APP_ONBOARDING -> ACTIVE.  Computed here (single source of truth) so the
+# clients just read the stage from GET /users/me/auth-state and route accordingly.
+#
+# No denormalized gate columns are used.  Every gate is evaluated from the
+# actual field values on each request, so there is zero drift risk.
+
+
+# Mandatory profile fields for the PROFILE_COMPLETION gate.
+_PROFILE_REQUIRED_FIELDS: tuple[str, ...] = ("full_name", "date_of_birth")
+
+
+# ── Multi-app onboarding registry ────────────────────────────────────────────
+# Each app registers a callable that inspects the live User row and returns
+# True when that app's onboarding is complete.  New apps call
+# ``register_app_onboarding_check("stays", fn)`` during startup.
+
+_APP_ONBOARDING_CHECKS: dict[str, Callable[[User], bool]] = {
+    "flatmates": lambda u: bool(u.flatmates_onboarding_completed),
+}
+
+
+def register_app_onboarding_check(app: str, check: Callable[[User], bool]) -> None:
+    """Register an onboarding-completion check for a new app.
+
+    ``check`` receives the live :class:`User` row and must return ``True``
+    when that app's onboarding is complete.
+    """
+    _APP_ONBOARDING_CHECKS[app] = check
+
+
+async def compute_auth_gate_state(
+    db: AsyncSession, user: User, *, app: str = "flatmates"
+) -> dict[str, Any]:
+    """Compute the current auth gate stage for a user.
+
+    Parameters:
+        db: the async DB session.
+        user: the live :class:`User` row (field values read as-is).
+        app: the app slug whose onboarding to check (``"flatmates"``,
+            ``"stays"``, etc.).  Defaults to ``"flatmates"``.
+
+    Returns a dict:
+      - ``stage``: the current gate (``identifier_verification``,
+        ``password_setup``, ``profile_completion``, ``app_onboarding``,
+        ``active``)
+      - ``next_action``: what the client should do next
+      - ``missing_fields``: list of profile fields still required (if applicable)
+    """
+    # ── IDENTIFIER_VERIFICATION: is at least one channel confirmed? ──────
+    if not user.email_verified and not user.phone_verified:
+        return {
+            "stage": "identifier_verification",
+            "next_action": "verify_identifier",
+            "missing_fields": [],
+        }
+
+    # ── PASSWORD_SETUP: does the account have a password? ────────────────
+    # Queried from auth.users because the local mirror does not store it.
+    has_password = await _check_user_has_password(db, user.supabase_user_id)
+    if not has_password:
+        return {
+            "stage": "password_setup",
+            "next_action": "set_password",
+            "missing_fields": [],
+        }
+
+    # ── PROFILE_COMPLETION: are all mandatory fields present? ────────────
+    missing = [
+        field
+        for field in _PROFILE_REQUIRED_FIELDS
+        if not getattr(user, field, None)
+    ]
+    if missing:
+        return {
+            "stage": "profile_completion",
+            "next_action": "complete_profile",
+            "missing_fields": missing,
+        }
+
+    # ── APP_ONBOARDING: look up the app-specific check from the registry. ─
+    onboarding_check = _APP_ONBOARDING_CHECKS.get(app, lambda u: True)
+    if not onboarding_check(user):
+        return {
+            "stage": "app_onboarding",
+            "next_action": "complete_onboarding",
+            "missing_fields": [],
+        }
+
+    # ── ACTIVE ───────────────────────────────────────────────────────────
+    return {
+        "stage": "active",
+        "next_action": "grant_access",
+        "missing_fields": [],
+    }
+
+
+async def _check_user_has_password(db: AsyncSession, supabase_user_id: str) -> bool:
+    """Check whether the Supabase auth user has a password credential."""
+    try:
+        stmt = text(
+            "SELECT (encrypted_password IS NOT NULL) AS has_password "
+            "FROM auth.users WHERE id = :uid LIMIT 1"
+        )
+        result = await db.execute(stmt, {"uid": supabase_user_id})
+        row = result.mappings().first()
+        return bool(row and row["has_password"]) if row else False
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "auth-state: password check failed for %s (err=%s)",
+            supabase_user_id,
+            type(exc).__name__,
+        )
+        # On failure, assume password exists so we don't block the user
+        # unnecessarily (the gate can be re-evaluated on next request).
+        return True
+
 
 async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
     """Fetch a user by internal ID."""
