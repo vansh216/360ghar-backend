@@ -406,15 +406,19 @@ git commit -m "feat(api): cursor-paginate pm/leases (keyset on created_at,id)"
 
 For each row in the **Conversion Inventory** below: one task = one router file. Apply the recipe (service + endpoint), write a pagination test mirroring Task 2 (page-walk + `INVALID_CURSOR`), run, lint, commit (`feat(api): cursor-paginate <area>`). Use the named **sort key**; **strategy** says keyset or offset-fallback.
 
+> **STANDING RULE (strategy selection):** preserve each endpoint's existing ORDER BY. Use **keyset** only when the primary sort column is **NOT NULL** and a real table column (pass `descending=False` to `keyset_filter`/`order_by` when the existing order is ASC). Use **offset-fallback** when the sort key is **nullable**, a **computed expression/aggregate**, or **multi-column with a nullable member** — keyset tuple comparison mis-pages NULLs. Sort keys/strategies below were verified against the models on 2026-06-18.
+
 | # | Router file | Endpoints | Strategy | Sort key |
 |---|---|---|---|---|
-| 3 | `endpoints/pm_properties.py` | `GET /pm/properties` | keyset | `created_at, id` |
-| 4 | `endpoints/pm_rent.py` | `GET /pm/rent/charges`, `GET /pm/rent/payments` | keyset | `created_at, id` |
-| 5 | `endpoints/pm_expenses.py` | `GET /pm/expenses` | keyset | `created_at, id` |
-| 6 | `endpoints/pm_applications.py` | `GET /pm/applications`, `GET /pm/applications/{id}/form-submissions` | keyset | `created_at, id` |
-| 7 | `endpoints/pm_maintenance.py` | `GET /pm/maintenance` | keyset | `created_at, id` |
-| 8 | `endpoints/pm_inspections.py` | `GET /pm/inspections` | keyset | `created_at, id` |
-| 9 | `endpoints/pm_tenants.py` | `GET /pm/tenants` | keyset | `created_at, id` |
+| 3 | `endpoints/pm_properties.py` | `GET /pm/properties` (`list_managed_properties`) | keyset desc | `Property.created_at, id` |
+| 4 | `endpoints/pm_rent.py` | `GET /pm/rent/charges` (`list_rent_charges`) | keyset **ASC** (`descending=False`) | `RentCharge.due_date, id` |
+| 4 | `endpoints/pm_rent.py` | `GET /pm/rent/payments` (`list_rent_payments`) | keyset desc | `RentPayment.paid_at, id` (NOT NULL) |
+| 5 | `endpoints/pm_expenses.py` | `GET /pm/expenses` (`list_expenses`) | keyset desc | `Expense.expense_date, id` (NOT NULL) |
+| 6 | `endpoints/pm_applications.py` | `GET /pm/applications/{id}/form-submissions` (`list_application_forms`) | keyset desc | `RentalApplicationForm.created_at, id` |
+| 6 | `endpoints/pm_applications.py` | `GET /pm/applications` (`list_applications`) | **offset-fallback** | `submitted_at` is nullable — keep existing `desc(submitted_at), desc(created_at)` order |
+| 7 | `endpoints/pm_maintenance.py` | `GET /pm/maintenance` (`list_maintenance_requests`) | keyset desc | `MaintenanceRequest.created_at, id` |
+| 8 | `endpoints/pm_inspections.py` | `GET /pm/inspections` (`list_inspections`) | keyset desc | `InspectionChecklist.conducted_at, id` (NOT NULL) |
+| 9 | `endpoints/pm_tenants.py` | `GET /pm/tenants` (`list_tenants`) | **offset-fallback** | sorts by computed `active_count` aggregate — keep existing order |
 | 10 | `endpoints/pm_dashboard.py` | `GET /pm/dashboard/activity` | offset-fallback | existing activity order |
 | 11 | `endpoints/core.py` | `GET /core/bugs`, `/core/pages`, `/core/faqs`, `/core/faqs/admin` | keyset | `created_at, id` |
 | 12 | `endpoints/ai.py` | `GET /ai/jobs` | keyset | `created_at, id` |
