@@ -261,7 +261,7 @@ class SupabaseClientManager:
         try:
             claims = await verify_jwt_locally(token)
         except JWKSUnavailable as exc:
-            logger.info("JWKS unavailable (%s); falling back to introspection", exc)
+            logger.debug("JWKS unavailable (%s); falling back to introspection", exc)
             claims = None  # fall through to introspection
         except Exception as exc:  # noqa: BLE001 — never crash auth on JWT util
             logger.warning("Local JWT verification error: %s", exc)

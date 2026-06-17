@@ -27,16 +27,38 @@ async def rent_roll_report(
     if owner_ids is not None:
         stmt = stmt.where(Property.owner_id.in_(owner_ids))
 
-    out: list[dict[str, Any]] = []
-    props = await db.stream_scalars(stmt)
-    async for p in props:
-        lease_stmt = (
-            select(Lease)
-            .where(Lease.property_id == p.id, Lease.status == LeaseStatus.active)
-            .order_by(Lease.created_at.desc())
-            .limit(1)
+    # Materialize the property set in a single query so we can issue one
+    # batched lease lookup afterwards. Streaming here would hold a cursor
+    # open across the second query (an anti-pattern) and force N follow-up
+    # queries for the per-property active lease.
+    props = list((await db.execute(stmt)).scalars().all())
+
+    # Batched: one query for the newest active lease per property, instead
+    # of one query per property (the original N+1 pattern).
+    latest_lease: dict[int, Lease] = {}
+    if props:
+        prop_ids = [p.id for p in props]
+        lease_rows = (
+            (
+                await db.execute(
+                    select(Lease)
+                    .where(
+                        Lease.property_id.in_(prop_ids),
+                        Lease.status == LeaseStatus.active,
+                    )
+                    .order_by(Lease.property_id, Lease.created_at.desc())
+                )
+            )
+            .scalars()
+            .all()
         )
-        lease = (await db.execute(lease_stmt)).scalar_one_or_none()
+        # Keep only the newest active lease per property (created_at desc).
+        for row in lease_rows:
+            latest_lease.setdefault(row.property_id, row)
+
+    out: list[dict[str, Any]] = []
+    for p in props:
+        lease = latest_lease.get(p.id)
         out.append(
             {
                 "property_id": p.id,

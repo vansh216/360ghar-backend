@@ -152,8 +152,14 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.rollback()
             raise
         else:
-            # Commit only if no exception occurred during the request
-            await session.commit()
+            # Commit only if the session actually has pending changes.
+            # Read-only requests (GETs, detail views) should not force a
+            # write transaction against the database / PgBouncer. Services
+            # that explicitly call ``await session.commit()`` are unaffected
+            # because by the time we reach this branch those changes have
+            # already been committed and the session is clean.
+            if session.new or session.dirty or session.deleted:
+                await session.commit()
         finally:
             hold_time = time.monotonic() - session_start
             if hold_time > _SESSION_HOLD_WARN_S:
@@ -181,7 +187,9 @@ async def get_bg_db() -> AsyncGenerator[AsyncSession, None]:
             await session.rollback()
             raise
         else:
-            await session.commit()
+            # Only commit if the background task actually mutated state.
+            if session.new or session.dirty or session.deleted:
+                await session.commit()
 
 
 def get_async_session_factory():

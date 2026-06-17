@@ -667,6 +667,121 @@ class TestUserRoles:
 class TestUpdateUser:
     """Tests for update_user function."""
 
+    def _make_existing_user(self, *, user_id: int = 1, role: str = UserRole.user.value) -> User:
+        return User(
+            id=user_id,
+            supabase_user_id=str(uuid.uuid4()),
+            phone="+919876543210",
+            email="target@example.com",
+            full_name="Target User",
+            role=role,
+            is_active=True,
+        )
+
+    def _make_actor(self, *, user_id: int = 2, role: str = UserRole.user.value, agent_id=None) -> User:
+        return User(
+            id=user_id,
+            supabase_user_id=str(uuid.uuid4()),
+            phone="+919999999999",
+            email="actor@example.com",
+            full_name="Actor",
+            role=role,
+            is_active=True,
+            agent_id=agent_id,
+        )
+
+    @pytest.mark.asyncio
+    async def test_regular_user_cannot_update_other_user(self):
+        """A non-admin actor must not be able to update another user's row.
+
+        Regression for the missing role check on PUT /users/{user_id}: a plain
+        ``user`` role caller passing any user_id used to fall through and mutate
+        the target. It must now raise ForbiddenException.
+        """
+        from app.core.exceptions import ForbiddenException
+        from app.schemas.user import UserUpdate
+        from app.services.user import update_user
+
+        target = self._make_existing_user(user_id=10, role=UserRole.user.value)
+        actor = self._make_actor(user_id=20, role=UserRole.user.value)
+
+        db = AsyncMock(spec=AsyncSession)
+
+        with patch("app.services.user.get_user_by_id", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = target
+
+            with pytest.raises(ForbiddenException) as exc_info:
+                await update_user(db, target.id, UserUpdate(full_name="Hijack Attempt"), actor=actor)
+
+        assert exc_info.value.status_code == 403
+        # No flush / commit should have happened for the unauthorized update
+        db.flush.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_user_can_update_their_own_profile(self):
+        """Self-update must continue to work for the same user_id."""
+        from app.schemas.user import UserUpdate
+        from app.services.user import update_user
+
+        target = self._make_existing_user(user_id=42, role=UserRole.user.value)
+        actor = self._make_actor(user_id=42, role=UserRole.user.value)
+        # In self-update, actor IS the target user_id.
+
+        db = AsyncMock(spec=AsyncSession)
+        db.flush = AsyncMock()
+        db.refresh = AsyncMock()
+
+        with patch("app.services.user.get_user_by_id", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = target
+            updated = await update_user(
+                db, target.id, UserUpdate(full_name="Renamed"), actor=actor
+            )
+
+        assert updated is target
+        assert target.full_name == "Renamed"
+
+    @pytest.mark.asyncio
+    async def test_admin_can_update_any_user(self):
+        """Admins retain the ability to update any user's row."""
+        from app.schemas.user import UserUpdate
+        from app.services.user import update_user
+
+        target = self._make_existing_user(user_id=77, role=UserRole.user.value)
+        actor = self._make_actor(user_id=1, role=UserRole.admin.value)
+
+        db = AsyncMock(spec=AsyncSession)
+        db.flush = AsyncMock()
+        db.refresh = AsyncMock()
+
+        with patch("app.services.user.get_user_by_id", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = target
+            updated = await update_user(
+                db, target.id, UserUpdate(full_name="Admin Set"), actor=actor
+            )
+
+        assert updated is target
+        assert target.full_name == "Admin Set"
+
+    @pytest.mark.asyncio
+    async def test_agent_update_other_user_without_assignment_is_forbidden(self):
+        """An agent without assignment to the target user is rejected."""
+        from app.core.exceptions import ForbiddenException
+        from app.schemas.user import UserUpdate
+        from app.services.user import update_user
+
+        target = self._make_existing_user(user_id=10, role=UserRole.user.value)
+        target.agent_id = 5  # assigned to a different agent
+        actor = self._make_actor(user_id=2, role=UserRole.agent.value, agent_id=99)
+
+        db = AsyncMock(spec=AsyncSession)
+
+        with patch("app.services.user.get_user_by_id", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = target
+            with pytest.raises(ForbiddenException):
+                await update_user(db, target.id, UserUpdate(full_name="Hijack Attempt"), actor=actor)
+
+        db.flush.assert_not_awaited()
+
     @pytest.mark.asyncio
     async def test_update_user_unexpected_error_is_wrapped(self):
         """Unexpected update errors should stay in the standard API envelope."""

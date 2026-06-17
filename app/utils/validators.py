@@ -222,3 +222,24 @@ class ValidationUtils:
                     field_name, url, ctx,
                 )
         return filtered
+
+    @staticmethod
+    async def verify_image_urls_async(
+        urls: list[str],
+        *,
+        timeout: float = 4.0,
+    ) -> tuple[list[str], list[str]]:
+        """Reachability-check a list of image URLs concurrently.
+
+        Thin async wrapper over :func:`app.services.media.url_verifier.verify_image_urls`.
+        Returns ``(kept, dropped)`` where ``dropped`` only contains
+        first-party (Cloudinary) URLs that returned 4xx/5xx; third-party
+        soft-failures stay in ``kept`` so transient outages do not block
+        inserts. This is the gate that rejects well-formed but non-existent
+        Cloudinary URLs such as the historical ``hc_properties`` phantoms.
+        """
+        # Imported lazily to avoid importing httpx at module import time
+        # (validators is imported widely across the app).
+        from app.services.media.url_verifier import verify_image_urls
+
+        return await verify_image_urls(urls, timeout=timeout)

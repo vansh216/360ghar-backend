@@ -142,6 +142,90 @@ class TestCreateProperty:
         )
         assert data.monthly_rent is None
 
+    @pytest.mark.asyncio
+    async def test_create_property_drops_phantom_cloudinary_url(self):
+        """Regression: a phantom hc_properties URL (HTTP 404) is dropped on
+        the sync verification path, never persisted to property_images."""
+        from app.services.property import create_property
+        from app.schemas.property import PropertyCreate
+        from app.services.property import crud as crud_mod
+
+        phantom = (
+            "https://res.cloudinary.com/ddbhzlzy1/image/upload/360ghar/"
+            "hc_properties/00171-ompee-drona-floors-palam-vihar-3bhk-builder-floor/"
+            "listing_images/master_bedroom.webp"
+        )
+        working = (
+            "https://res.cloudinary.com/ddbhzlzy1/image/upload/v1781553648/"
+            "360ghar/properties/1531/entrance.webp"
+        )
+
+        property_data = PropertyCreate(
+            title="Phantom Drop Test",
+            property_type=PropertyType.apartment,
+            purpose=PropertyPurpose.buy,
+            base_price=Decimal("5000000"),
+            city="Gurugram",
+            latitude=28.51,
+            longitude=77.03,
+            image_urls=[phantom, working],
+        )
+
+        actor = MagicMock()
+        actor.id = 1
+        actor.role = "admin"
+        actor.agent_id = None
+        owner = MagicMock()
+        owner.id = 1
+        owner.full_name = "Owner"
+
+        captured_image_urls: list[list[str]] = []
+
+        async def _capture_replace(db, *, property_id, image_urls):
+            captured_image_urls.append(image_urls)
+
+        # _verify_and_clean_image_urls drops the phantom, keeps the working URL.
+        async def _fake_verify(urls):
+            return [u for u in urls if "hc_properties" not in u]
+
+        db_session = AsyncMock(spec=AsyncSession)
+        db_session.flush = AsyncMock()
+
+        with (
+            patch.object(crud_mod, "PropertyRepository") as mock_repo_class,
+            patch.object(crud_mod, "geocode_listing", new=AsyncMock()),
+            patch.object(
+                crud_mod.PropertyCacheManager,
+                "invalidate_property_caches",
+                new=AsyncMock(),
+            ),
+            patch.object(
+                crud_mod, "_replace_property_images", side_effect=_capture_replace
+            ),
+            patch.object(
+                crud_mod, "_verify_and_clean_image_urls", side_effect=_fake_verify
+            ),
+            patch.object(crud_mod, "_schedule_async_image_verification"),
+            patch.object(crud_mod, "UserModel", MagicMock(return_value=owner)),
+            patch.object(crud_mod.PropertySchema, "model_validate", return_value=MagicMock()),
+        ):
+            mock_repo = MagicMock()
+            mock_property = MagicMock()
+            mock_property.id = 999
+            mock_property.property_type = PropertyType.apartment
+            mock_property.purpose = PropertyPurpose.buy
+            mock_property.listing_preferences = {}
+            mock_repo.create = AsyncMock(return_value=mock_property)
+            mock_repo.get_property_with_owner = AsyncMock(return_value=mock_property)
+            mock_repo_class.return_value = mock_repo
+
+            await create_property(db_session, property_data, owner.id, actor)
+
+        # The phantom URL must NOT have been passed to _replace_property_images.
+        assert captured_image_urls, "_replace_property_images was never called"
+        assert phantom not in captured_image_urls[0]
+        assert working in captured_image_urls[0]
+
 
 class TestGetProperty:
     """Tests for get_property function."""

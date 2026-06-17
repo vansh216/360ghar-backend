@@ -59,6 +59,86 @@ def _clean_image_urls(image_urls: list[str] | None) -> list[str]:
     return cleaned_urls
 
 
+async def _verify_and_clean_image_urls(image_urls: list[str]) -> list[str]:
+    """Sync (caller is already async) reachability check.
+
+    Drops Cloudinary (first-party) URLs that return 4xx/5xx. Third-party
+    soft-failures are kept. This is the gate that rejects phantom URLs such
+    as the historical ``hc_properties`` ones. Returns the kept subset.
+    """
+    if not image_urls:
+        return image_urls
+    kept, dropped = await ValidationUtils.verify_image_urls_async(image_urls)
+    for bad in dropped:
+        logger.warning("Dropping unreachable image URL on sync path: %s", bad)
+    return kept
+
+
+def _schedule_async_image_verification(property_id: int, image_urls: list[str]) -> None:
+    """Fire-and-forget background verification of stored image URLs.
+
+    Runs after the property row is committed on the user-facing path so
+    broken images are NULLed out within seconds without adding latency to
+    the create/update response. Failures here are logged only and never
+    surface to the caller (the property was already created successfully).
+    """
+    import asyncio
+
+    if not image_urls:
+        return
+
+    async def _verify_and_nullify() -> None:
+        try:
+            kept, dropped = await ValidationUtils.verify_image_urls_async(image_urls)
+            if not dropped:
+                return
+            # Open a fresh session: the request's session is closed by now.
+            from app.core.database import AsyncSessionLocal
+
+            async with AsyncSessionLocal() as session:
+                for bad_url in dropped:
+                    await session.execute(
+                        update(PropertyImage)
+                        .where(
+                            PropertyImage.property_id == property_id,
+                            PropertyImage.image_url == bad_url,
+                        )
+                        .values(image_url=None)
+                    )
+                    # If the broken URL was the main image, clear it too.
+                    await session.execute(
+                        update(Property)
+                        .where(
+                            Property.id == property_id,
+                            Property.main_image_url == bad_url,
+                        )
+                        .values(main_image_url=None)
+                    )
+                await session.commit()
+            await PropertyCacheManager.invalidate_property_caches(property_id)
+            logger.warning(
+                "Async verification NULLed %d unreachable image URL(s) for property %s",
+                len(dropped),
+                property_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Async image verification failed for property %s: %s",
+                property_id,
+                exc,
+            )
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_verify_and_nullify())
+    except RuntimeError:
+        # No running loop (e.g. synchronous test context) — skip silently.
+        logger.debug(
+            "No running loop; skipping async image verification for property %s",
+            property_id,
+        )
+
+
 def _owner_moderation_status_toggle(update_data: dict) -> str | None:
     if set(update_data) != {"listing_preferences"}:
         return None
@@ -145,6 +225,12 @@ async def create_property(
 
         property_dict = property_data.model_dump(exclude_unset=True, mode="json")
         image_urls = _clean_image_urls(property_dict.pop("image_urls", None))
+        # Sync URL verification: any path that comes through create_property
+        # (user-facing or admin) gets its Cloudinary URLs HEAD-checked here.
+        # This is the gate that rejects phantom URLs like the historical
+        # hc_properties ones. Third-party URLs are soft (kept on failure).
+        if image_urls:
+            image_urls = await _verify_and_clean_image_urls(image_urls)
         if image_urls and not property_dict.get("main_image_url"):
             property_dict["main_image_url"] = image_urls[0]
         property_dict["owner_id"] = owner_id
@@ -183,6 +269,11 @@ async def create_property(
         property_with_relations = await repo.get_property_with_owner(db_property.id)
         if property_with_relations is None:
             raise PropertyNotFoundException(property_id=db_property.id)
+
+        # Belt-and-suspenders: async re-verification after commit in case the
+        # sync check was skipped or a URL goes bad between insert and serve.
+        if image_urls:
+            _schedule_async_image_verification(db_property.id, image_urls)
 
         logger.info("Property created successfully with ID %s", db_property.id)
         return PropertySchema.model_validate(property_with_relations)
@@ -304,6 +395,10 @@ async def update_property(
         update_data = property_update.model_dump(exclude_unset=True, mode="json")
         image_urls_present = "image_urls" in update_data
         image_urls = _clean_image_urls(update_data.pop("image_urls", None))
+        # Sync URL verification: drops phantom Cloudinary URLs on every
+        # update path. Third-party URLs are soft (kept on failure).
+        if image_urls:
+            image_urls = await _verify_and_clean_image_urls(image_urls)
         if image_urls_present and "main_image_url" not in update_data:
             update_data["main_image_url"] = image_urls[0] if image_urls else None
         final_property_type = update_data.get("property_type", property_obj.property_type)
@@ -381,6 +476,10 @@ async def update_property(
         property_obj = await repo.get_property_with_owner(property_id)
         await PropertyCacheManager.invalidate_property_caches(property_id)
         await PropertyCacheManager.invalidate_property_detail_cache(property_id)
+
+        # Async re-verification safety net for any newly-set image URLs.
+        if image_urls_present and image_urls:
+            _schedule_async_image_verification(property_id, image_urls)
 
         logger.info("Property %s updated successfully", property_id)
         return PropertySchema.model_validate(property_obj)

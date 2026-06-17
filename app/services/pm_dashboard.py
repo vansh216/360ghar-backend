@@ -8,7 +8,7 @@ from sqlalchemy import and_, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import InsufficientPermissionsError
-from app.models.enums import LeaseStatus, UserRole
+from app.models.enums import LeaseStatus, PropertyStatus, UserRole
 from app.models.pm_finance import Expense, RentCharge, RentPayment
 from app.models.pm_leases import Lease
 from app.models.pm_maintenance import MaintenanceRequest
@@ -73,7 +73,7 @@ async def get_dashboard_overview(
     vacant_properties = max(total_properties - occupied_properties, 0)
 
     maintenance_stmt = select(func.count(Property.id)).where(
-        Property.is_managed, Property.status == "maintenance"  # PropertyStatus enum stored as string in DB
+        Property.is_managed, Property.status == PropertyStatus.maintenance
     )
     if owner_ids is not None:
         maintenance_stmt = maintenance_stmt.where(Property.owner_id.in_(owner_ids))

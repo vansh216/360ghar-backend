@@ -3,7 +3,6 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agents import Agent
-from app.models.properties import Visit
 from app.models.users import User
 from app.schemas.agent import (
     Agent as AgentSchema,
@@ -31,11 +30,6 @@ async def get_agent_with_stats(db: AsyncSession, agent_id: int) -> AgentWithStat
     count_result = await db.execute(count_stmt)
     current_users = int(count_result.scalar() or 0)
 
-    # Get visit stats for efficiency calculation
-    count_stmt = select(func.count(Visit.id)).where(Visit.agent_id == agent_id)
-    count_result = await db.execute(count_stmt)
-    count_result.scalar() or 0
-
     # Get real interaction counts
     daily_interactions = await get_daily_interactions(db, agent_id)
     weekly_interactions = await get_weekly_interactions(db, agent_id)
@@ -49,7 +43,10 @@ async def get_agent_with_stats(db: AsyncSession, agent_id: int) -> AgentWithStat
         efficiency_score=_calculate_efficiency_score(agent, current_users)
     )
 
-    agent_schema = AgentSchema.model_validate(agent.__dict__)
+    # Validate from the ORM object directly (from_attributes=True handles it)
+    # instead of agent.__dict__ which includes _sa_instance_state and
+    # unloaded relationship proxies that can crash Pydantic validation.
+    agent_schema = AgentSchema.model_validate(agent)
     return AgentWithStats(
         **agent_schema.model_dump(),
         stats=stats

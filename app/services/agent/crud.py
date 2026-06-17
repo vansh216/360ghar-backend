@@ -25,21 +25,21 @@ async def get_all_agents(db: AsyncSession) -> list[AgentSchema]:
     stmt = select(Agent)
     result = await db.execute(stmt)
     agents = result.scalars().all()
-    return [AgentSchema.model_validate(agent.__dict__) for agent in agents]
+    return [AgentSchema.model_validate(agent) for agent in agents]
 
 async def get_active_agents(db: AsyncSession) -> list[AgentSchema]:
     """Get all active agents"""
     stmt = select(Agent).where(Agent.is_active)
     result = await db.execute(stmt)
     agents = result.scalars().all()
-    return [AgentSchema.model_validate(agent.__dict__) for agent in agents]
+    return [AgentSchema.model_validate(agent) for agent in agents]
 
 async def get_available_agents(db: AsyncSession) -> list[AgentSchema]:
     """Get all available agents (active and available)"""
     stmt = select(Agent).where(and_(Agent.is_active, Agent.is_available))
     result = await db.execute(stmt)
     agents = result.scalars().all()
-    return [AgentSchema.model_validate(agent.__dict__) for agent in agents]
+    return [AgentSchema.model_validate(agent) for agent in agents]
 
 async def get_available_agents_paginated(
     db: AsyncSession,
@@ -94,7 +94,7 @@ async def get_agent_by_id(db: AsyncSession, agent_id: int) -> AgentSchema | None
     stmt = select(Agent).where(Agent.id == agent_id)
     result = await db.execute(stmt)
     agent = result.scalar_one_or_none()
-    return AgentSchema.model_validate(agent.__dict__) if agent else None
+    return AgentSchema.model_validate(agent) if agent else None
 
 
 async def create_agent(db: AsyncSession, agent_data: AgentCreate) -> AgentSchema | None:
@@ -111,7 +111,7 @@ async def create_agent(db: AsyncSession, agent_data: AgentCreate) -> AgentSchema
     await db.flush()
     await db.refresh(db_agent)
 
-    return AgentSchema.model_validate(db_agent.__dict__)
+    return AgentSchema.model_validate(db_agent)
 
 async def update_agent(db: AsyncSession, agent_id: int, update_data: AgentUpdate) -> AgentSchema | None:
     """Update agent details"""
@@ -127,14 +127,14 @@ async def update_agent(db: AsyncSession, agent_id: int, update_data: AgentUpdate
 
     if not update_dict:
         # No valid updates
-        return AgentSchema.model_validate(agent.__dict__)
+        return AgentSchema.model_validate(agent)
 
     for field, value in update_dict.items():
         setattr(agent, field, value)
 
     await db.flush()
     await db.refresh(agent)
-    return AgentSchema.model_validate(agent.__dict__)
+    return AgentSchema.model_validate(agent)
 
 async def delete_agent(db: AsyncSession, agent_id: int) -> bool:
     """Soft delete an agent (set as inactive)"""
@@ -164,7 +164,7 @@ async def get_user_agent(db: AsyncSession, user_id: int, auto_assign: bool = Tru
         agent_result = await db.execute(agent_stmt)
         agent = agent_result.scalar_one_or_none()
         if agent:
-            return AgentSchema.model_validate(agent.__dict__)
+            return AgentSchema.model_validate(agent)
 
     # Auto-assign if requested and no agent exists
     if auto_assign:
@@ -191,7 +191,7 @@ async def assign_agent_to_user(db: AsyncSession, user_id: int, agent_id: int | N
         agent_result = await db.execute(agent_stmt)
         existing_agent = agent_result.scalar_one_or_none()
         if existing_agent:
-            agent_schema = AgentSchema.model_validate(existing_agent.__dict__)
+            agent_schema = AgentSchema.model_validate(existing_agent)
             return AgentAssignment(
                 user_id=user_id,
                 agent=agent_schema,
@@ -235,7 +235,7 @@ async def assign_agent_to_user(db: AsyncSession, user_id: int, agent_id: int | N
     await db.flush()
     await db.refresh(agent)
 
-    agent_schema = AgentSchema.model_validate(agent.__dict__)
+    agent_schema = AgentSchema.model_validate(agent)
     return AgentAssignment(
         user_id=user_id,
         agent=agent_schema,
@@ -250,7 +250,7 @@ async def get_agents_by_type(db: AsyncSession, agent_type: str) -> list[AgentSch
     )
     result = await db.execute(stmt)
     agents = result.scalars().all()
-    return [AgentSchema.model_validate(agent.__dict__) for agent in agents]
+    return [AgentSchema.model_validate(agent) for agent in agents]
 
 async def update_agent_availability(db: AsyncSession, agent_id: int, is_available: bool) -> bool:
     """Update agent availability status"""

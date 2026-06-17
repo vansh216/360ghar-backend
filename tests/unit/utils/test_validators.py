@@ -248,3 +248,62 @@ class TestValidateListInput:
     def test_all_values_allowed(self):
         items = ["a", "b"]
         assert ValidationUtils.validate_list_input(items, allowed_values=["a", "b", "c"]) == items
+
+
+class TestIsAbsoluteUrl:
+    """Tests for is_absolute_url.
+
+    Locks in the behaviour that identifies (but does NOT reachability-check)
+    absolute URLs. The historical hc_properties phantom URL passes this
+    scheme check; reachability is validated separately by
+    verify_image_urls_async (see test_url_verification.py).
+    """
+
+    def test_https_is_absolute(self):
+        assert ValidationUtils.is_absolute_url("https://example.com/x.jpg") is True
+
+    def test_http_is_absolute(self):
+        assert ValidationUtils.is_absolute_url("http://example.com/x.jpg") is True
+
+    def test_relative_path_is_not_absolute(self):
+        assert ValidationUtils.is_absolute_url("hc_properties/x/listing_images/y.webp") is False
+
+    def test_protocol_relative_is_not_absolute(self):
+        # "//example.com/x" lacks a scheme; only http/https count here.
+        assert ValidationUtils.is_absolute_url("//example.com/x.jpg") is False
+
+    def test_empty_and_none(self):
+        assert ValidationUtils.is_absolute_url("") is False
+        assert ValidationUtils.is_absolute_url(None) is False  # type: ignore[arg-type]
+
+    def test_phantom_hc_properties_url_is_absolute(self):
+        """Regression anchor: the phantom URL passes scheme validation.
+
+        This confirms why the reachability layer (verify_image_urls_async)
+        is required in addition to this check.
+        """
+        phantom = (
+            "https://res.cloudinary.com/ddbhzlzy1/image/upload/360ghar/"
+            "hc_properties/00171-ompee-drona-floors-palam-vihar-3bhk-builder-floor/"
+            "listing_images/master_bedroom.webp"
+        )
+        assert ValidationUtils.is_absolute_url(phantom) is True
+
+    def test_working_cloudinary_url_is_absolute(self):
+        working = (
+            "https://res.cloudinary.com/ddbhzlzy1/image/upload/v1781553648/"
+            "360ghar/properties/1531/entrance.webp"
+        )
+        assert ValidationUtils.is_absolute_url(working) is True
+
+
+class TestFilterAbsoluteUrls:
+    def test_keeps_absolute_drops_relative(self):
+        urls = ["https://ok.com/a.jpg", "relative/path.jpg", "https://ok.com/b.jpg"]
+        assert ValidationUtils.filter_absolute_urls(urls) == [
+            "https://ok.com/a.jpg",
+            "https://ok.com/b.jpg",
+        ]
+
+    def test_empty(self):
+        assert ValidationUtils.filter_absolute_urls([]) == []

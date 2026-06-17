@@ -783,23 +783,31 @@ async def update_user(
         update_data = user_update.model_dump(exclude_unset=True)
         logger.debug("Updating user %s with fields: %s", user_id, list(update_data.keys()))
 
-        # RBAC: if an actor is provided and actor is an agent updating other users,
-        # restrict to safe fields only
-        if actor is not None and actor.role == UserRole.agent.value and actor.id != user_id:
-            # Ensure the agent is assigned to this user
-            if actor.agent_id is None or user.agent_id != actor.agent_id:
-                raise ForbiddenException(detail="Agent not authorized to update this user")
-            allowed_fields = {
-                "email",
-                "full_name",
-                "phone",
-                "profile_image_url",
-                "preferences",
-                "notification_settings",
-                "privacy_settings",
-            }
-            update_data = {k: v for k, v in update_data.items() if k in allowed_fields}
-            logger.debug("Agent update filtered fields: %s", list(update_data.keys()))
+        # RBAC: enforce role-based authorization on the target user.
+        #  - admins can update any user
+        #  - agents can update a limited field set for users assigned to them
+        #  - all other roles (regular users) can only update their own profile
+        if actor is not None and actor.role != UserRole.admin.value:
+            if actor.role == UserRole.agent.value and actor.id != user_id:
+                # Ensure the agent is assigned to this user
+                if actor.agent_id is None or user.agent_id != actor.agent_id:
+                    raise ForbiddenException(detail="Agent not authorized to update this user")
+                allowed_fields = {
+                    "email",
+                    "full_name",
+                    "phone",
+                    "profile_image_url",
+                    "preferences",
+                    "notification_settings",
+                    "privacy_settings",
+                }
+                update_data = {k: v for k, v in update_data.items() if k in allowed_fields}
+                logger.debug("Agent update filtered fields: %s", list(update_data.keys()))
+            elif actor.id != user_id:
+                # Regular users (and any non-admin, non-agent role) can only
+                # update their own profile. Without this check, any authenticated
+                # user could mutate another user's record by knowing the user_id.
+                raise ForbiddenException(detail="Not authorized to update this user")
         # Admins can update any fields; end-users can update their own profile via API
 
         # Handle email update (no uniqueness validation needed since emails are now non-unique)
