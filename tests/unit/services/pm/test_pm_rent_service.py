@@ -2,6 +2,8 @@
 Tests for PM rent service module.
 """
 
+from __future__ import annotations
+
 from datetime import date, datetime, timezone
 
 import pytest
