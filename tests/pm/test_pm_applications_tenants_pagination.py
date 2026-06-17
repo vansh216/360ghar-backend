@@ -12,7 +12,7 @@ For offset-fallback endpoints (list_applications, list_tenants):
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -164,8 +164,6 @@ async def seeded_applications(db_session, pm_owner, pm_property, seeded_applicat
 @pytest_asyncio.fixture
 async def seeded_tenants(db_session, pm_owner, pm_property) -> list[User]:
     """Create 3 tenant users each with an active lease under pm_owner."""
-    from datetime import date, timedelta
-
     tenant_users = []
     today = date.today()
 

@@ -80,6 +80,12 @@ def keyset_filter(
 
 
 def offset_payload(offset: int) -> dict[str, Any]:
+    """Encode an offset-based cursor payload.
+
+    Note: offset cursors are NOT bound to query filters — reusing a cursor across
+    a request with different filter params will paginate the new filter's result set
+    by raw offset (a known offset-pagination limitation).
+    """
     return {"v": CURSOR_VERSION, "o": offset}
 
 

@@ -37,19 +37,6 @@ async def list_tenants(
     else:
         raise InsufficientPermissionsError("Not authorized")
 
-    # Separate filter-only statement for total count (group_by-safe pattern)
-    filter_stmt = select(User.id).join(Lease, Lease.tenant_user_id == User.id).where(
-        Lease.tenant_user_id.is_not(None)
-    )
-    if owner_ids is not None:
-        filter_stmt = filter_stmt.where(Lease.owner_id.in_(owner_ids))
-    filter_stmt = filter_stmt.group_by(User.id)
-
-    count_total: int | None = None
-    if with_total:
-        count_stmt = select(func.count()).select_from(filter_stmt.subquery())
-        count_total = (await db.execute(count_stmt)).scalar_one()
-
     active_count_expr = func.sum(
         case((Lease.status == LeaseStatus.active, 1), else_=0)
     ).label("active_leases_count")
@@ -69,6 +56,11 @@ async def list_tenants(
 
     if owner_ids is not None:
         stmt = stmt.where(Lease.owner_id.in_(owner_ids))
+
+    count_total: int | None = None
+    if with_total:
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        count_total = (await db.execute(count_stmt)).scalar_one()
 
     offset = read_offset(cursor_payload)
     stmt = stmt.order_by(active_count_expr.desc(), User.id.desc()).offset(offset).limit(limit + 1)

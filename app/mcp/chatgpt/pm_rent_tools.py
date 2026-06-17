@@ -244,7 +244,6 @@ async def owner_rent_record_payment(
 async def owner_rent_history(
     property_id: int | None = None,
     lease_id: int | None = None,
-    page: int = 1,
     limit: int = 20,
 ) -> dict[str, Any]:
     """View rent payment history for the authenticated owner's properties."""
@@ -252,7 +251,6 @@ async def owner_rent_history(
         from app.services.pm_rent import list_rent_payments
 
         limit = min(max(1, limit), 50)
-        page = max(1, page)
 
         async with AsyncSessionLocal() as db:
             user = await _get_optional_user(db)
@@ -279,9 +277,8 @@ async def owner_rent_history(
             return format_chatgpt_response(
                 data={
                     "payments": serialized,
-                    "total": len(serialized),
+                    "count": len(serialized),
                     "total_collected": total_collected,
-                    "page": page,
                     "limit": limit,
                 },
                 content_summary=f"Showing {len(serialized)} payments totaling ₹{total_collected:,.0f}.",
