@@ -175,6 +175,8 @@ async def test_properties_cursor_paginates(
     ids1 = {item["id"] for item in body1["items"]}
     ids2 = {item["id"] for item in body2["items"]}
     assert ids1.isdisjoint(ids2)
+    assert body2["has_more"] is False
+    assert body2["next_cursor"] is None
 
 
 async def test_properties_include_total(
@@ -235,6 +237,8 @@ async def test_expenses_cursor_paginates(
     ids1 = {item["id"] for item in body1["items"]}
     ids2 = {item["id"] for item in body2["items"]}
     assert ids1.isdisjoint(ids2)
+    assert body2["has_more"] is False
+    assert body2["next_cursor"] is None
 
 
 async def test_expenses_include_total(
@@ -298,6 +302,8 @@ async def test_maintenance_cursor_paginates(
     ids1 = {item["id"] for item in body1["items"]}
     ids2 = {item["id"] for item in body2["items"]}
     assert ids1.isdisjoint(ids2)
+    assert body2["has_more"] is False
+    assert body2["next_cursor"] is None
 
 
 async def test_maintenance_invalid_cursor_400(pm_client: AsyncClient) -> None:
@@ -351,6 +357,8 @@ async def test_inspections_cursor_paginates(
     ids1 = {item["id"] for item in body1["items"]}
     ids2 = {item["id"] for item in body2["items"]}
     assert ids1.isdisjoint(ids2)
+    assert body2["has_more"] is False
+    assert body2["next_cursor"] is None
 
 
 async def test_inspections_include_total(
