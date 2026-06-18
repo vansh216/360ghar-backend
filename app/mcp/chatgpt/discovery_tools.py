@@ -171,18 +171,17 @@ async def discovery_search(
             )
 
             # Execute search
-            result = await get_unified_properties_optimized(
+            rows, _next, total_count = await get_unified_properties_optimized(
                 db,
                 filters=filters,
                 user_id=user_id,
-                page=page,
+                cursor_payload={},
                 limit=limit,
             )
 
             # Serialize properties
-            properties = [serialize_property_basic(p) for p in result.get("items", [])]
-            total = result.get("total", 0)
-            total_pages = result.get("total_pages", 0)
+            properties = [serialize_property_basic(p) for p in rows]
+            total = total_count or 0
 
             # Format response
             filters_applied = {
@@ -205,7 +204,6 @@ async def discovery_search(
                     "total": total,
                     "page": page,
                     "limit": limit,
-                    "total_pages": total_pages,
                     "filters_applied": filters_applied,
                 },
                 content_summary=format_property_list_summary(properties, total, filters_applied),
@@ -346,15 +344,15 @@ async def discovery_feed(
             )
 
             # Get properties
-            result = await get_unified_properties_optimized(
+            rows, _next, _total = await get_unified_properties_optimized(
                 db,
                 filters=filters,
                 user_id=user_id,
-                page=1,
+                cursor_payload={},
                 limit=limit,
             )
 
-            properties = [serialize_property_basic(p) for p in result.get("items", [])]
+            properties = [serialize_property_basic(p) for p in rows]
 
             return format_chatgpt_response(
                 data={
