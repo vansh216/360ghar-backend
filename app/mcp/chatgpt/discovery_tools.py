@@ -640,9 +640,10 @@ async def discovery_recommendations(
                 )
 
             # Get recommendations
-            recommendations = await get_property_recommendations(
+            recommendations, _next, _total = await get_property_recommendations(
                 db,
                 user_id=user.id,
+                cursor_payload={},
                 limit=limit,
             )
 

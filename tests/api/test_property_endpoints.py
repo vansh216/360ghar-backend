@@ -472,7 +472,7 @@ class TestPropertyRecommendations:
             "app.api.api_v1.endpoints.properties.get_property_recommendations",
             new_callable=AsyncMock,
         ) as mock_rec:
-            mock_rec.return_value = []
+            mock_rec.return_value = ([], None, None)
 
             response = await client.get("/api/v1/properties/recommendations/")
 

@@ -354,7 +354,8 @@ async def get_recommendations(
     user_id = current_user.id if current_user else None
     try:
         await pause_expired_flatmate_listings(db)
-        return await get_property_recommendations(db, user_id, limit)
+        rows, _next, _total = await get_property_recommendations(db, user_id, {}, limit)
+        return rows
     except Exception as e:
         if is_transient_db_error(e):
             error_code = extract_db_error_code(e) or "TRANSIENT_DB_ERROR"

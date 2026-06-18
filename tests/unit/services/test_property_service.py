@@ -534,9 +534,10 @@ class TestPropertyRecommendations:
         """Test getting property recommendations."""
         from app.services.property import get_property_recommendations
 
-        result = await get_property_recommendations(
+        result, _next, _total = await get_property_recommendations(
             db_session,
             user_id=test_user.id,
+            cursor_payload={},
             limit=5,
         )
 
