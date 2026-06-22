@@ -82,7 +82,9 @@ class TestCreateVisitEndpoint:
 
             assert response.status_code == 200
             data = response.json()
-            assert data["status"] == "scheduled"
+            # VisitStatus.scheduled serializes to its domain value "requested"
+            # (the flatmates visit lifecycle initial state; the web client expects this).
+            assert data["status"] == "requested"
 
     @pytest.mark.asyncio
     async def test_create_visit_unauthorized(self, client: AsyncClient):

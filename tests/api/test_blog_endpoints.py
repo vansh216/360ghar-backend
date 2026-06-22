@@ -66,7 +66,7 @@ class TestBlogPostEndpoints:
     async def test_get_blog_post(self, client: AsyncClient):
         """Test getting a specific blog post."""
         with patch(
-            "app.api.api_v1.endpoints.blog.get_blog_post",
+            "app.api.api_v1.endpoints.blog.get_blog_post_cached",
             new_callable=AsyncMock,
         ) as mock_get:
             # Return a dict that can be serialized

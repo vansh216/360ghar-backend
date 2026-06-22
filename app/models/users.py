@@ -81,7 +81,7 @@ class User(Base):
     notification_settings: Mapped[dict | None] = mapped_column(JSON, default=dict)
     privacy_settings: Mapped[dict | None] = mapped_column(JSON, default=dict)
     flatmates_mode: Mapped[FlatmatesMode | None] = mapped_column(SQLEnum(FlatmatesMode, name='flatmates_mode'), nullable=True)
-    flatmates_profile_status: Mapped[FlatmatesProfileStatus] = mapped_column(SQLEnum(FlatmatesProfileStatus, name='flatmates_profile_status'), default=FlatmatesProfileStatus.draft)
+    flatmates_profile_status: Mapped[FlatmatesProfileStatus | None] = mapped_column(SQLEnum(FlatmatesProfileStatus, name='flatmates_profile_status'), nullable=True, default=FlatmatesProfileStatus.draft)
     flatmates_onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     stays_onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     estate_onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))

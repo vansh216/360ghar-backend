@@ -12,7 +12,7 @@ state-machine:
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +25,6 @@ from app.core.logging import get_logger
 from app.middleware.rate_limit import EndpointRateLimiter
 from app.models.enums import AuthMethod
 from app.models.users import User
-from app.schemas.common import MessageResponse
 from app.services.user import delete_user_account, get_identifier_status, set_last_auth_method
 
 logger = get_logger(__name__)
@@ -116,17 +115,17 @@ async def identifier_status(
 
 @router.post(
     "/last-method",
-    response_model=MessageResponse,
+    status_code=204,
     summary="Record the last authentication method used by the current user",
 )
 async def last_method(
     body: LastMethodRequest,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
-) -> MessageResponse:
-    """AUTH required. Persist ``method`` on the current user."""
+) -> Response:
+    """AUTH required. Persist ``method`` on the current user. Returns 204 No Content."""
     await set_last_auth_method(db, current_user, body.method)
-    return MessageResponse(message="ok")
+    return Response(status_code=204)
 
 
 @router.post(
@@ -184,18 +183,20 @@ async def auth_config() -> AuthConfigResponse:
 
 @router.post(
     "/delete-account",
-    response_model=MessageResponse,
+    status_code=204,
     summary="Permanently delete the current user's account",
 )
 async def delete_account(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
-) -> MessageResponse:
+) -> Response:
     """AUTH required. Permanently delete the caller's own account.
 
     Hard-deletes the Supabase Auth user (revoking all sessions) and
     anonymizes + soft-deletes the local record. App Store Guideline
     5.1.1(v) compliance: the account becomes permanently unusable.
+    Returns 204 No Content (alternate mobile-friendly route; the canonical
+    ``DELETE /users/me`` returns 200 + MessageResponse).
     """
     await delete_user_account(db, current_user)
-    return MessageResponse(message="account deleted")
+    return Response(status_code=204)

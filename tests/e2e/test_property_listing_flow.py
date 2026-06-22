@@ -10,6 +10,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import AsyncClient
 
+from app.schemas.property import Property
+
 
 def create_mock_property_dict(
     property_id: int = 1,
@@ -227,9 +229,11 @@ class TestPropertyViewFlow:
         with patch(
             "app.api.api_v1.endpoints.properties.get_property", new_callable=AsyncMock
         ) as mock_get:
-            mock_get.return_value = create_mock_property_dict(
-                property_id=test_property.id,
-                title=test_property.title,
+            mock_get.return_value = Property.model_validate(
+                create_mock_property_dict(
+                    property_id=test_property.id,
+                    title=test_property.title,
+                )
             )
 
             with patch(
@@ -246,9 +250,11 @@ class TestPropertyViewFlow:
         with patch(
             "app.api.api_v1.endpoints.properties.get_property", new_callable=AsyncMock
         ) as mock_get:
-            mock_get.return_value = create_mock_property_dict(
-                property_id=test_property.id,
-                title=test_property.title,
+            mock_get.return_value = Property.model_validate(
+                create_mock_property_dict(
+                    property_id=test_property.id,
+                    title=test_property.title,
+                )
             )
 
             with patch(
