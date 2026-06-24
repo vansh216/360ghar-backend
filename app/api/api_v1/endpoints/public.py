@@ -317,9 +317,7 @@ async def track_tour_event(
         "heatmap",
         "session_start",
         "session_end",
-        "session_duration",
-        "like",
-        "unlike",
+        "session_duration",        
     }
     if event_type not in allowed_events:
         raise HTTPException(
